@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Referral First</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #fff; --text: #1b1f24; --muted: #5d6673; --line: #e2e5ea;
+    --accent: #2f5bea; --accent-ink: #fff; --ok: #157347; --ok-bg: #e6f4ec;
+    --warn: #9a5b00; --warn-bg: #fff3dc; --bad: #b42318; --bad-bg: #fde8e7; --info-bg: #e9efff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111418; --panel: #1a1e24; --text: #e7eaee; --muted: #9aa3ae; --line: #2b313a;
+      --accent: #6d8cff; --accent-ink: #0b0f19; --ok: #5fd08f; --ok-bg: #16291f;
+      --warn: #f0b55a; --warn-bg: #2d2412; --bad: #ff8a80; --bad-bg: #2f1716; --info-bg: #1b2340;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { background: var(--panel); border-bottom: 1px solid var(--line); }
+  .wrap { max-width: 1000px; margin: 0 auto; padding: 0 16px; }
+  .top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 16px 0 8px; flex-wrap: wrap; }
+  h1 { font-size: 20px; margin: 0; }
+  .meta { color: var(--muted); font-size: 13px; }
+  nav { display: flex; gap: 4px; overflow-x: auto; }
+  nav button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 10px 12px;
+               color: var(--muted); font: inherit; cursor: pointer; white-space: nowrap; }
+  nav button.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+  .badge { display: inline-block; min-width: 20px; padding: 0 6px; margin-left: 4px; border-radius: 10px;
+           background: var(--line); color: var(--text); font-size: 12px; text-align: center; }
+  main { padding: 24px 0 64px; }
+  section { display: none; } section.active { display: block; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px; margin-bottom: 14px; }
+  h2 { font-size: 16px; margin: 0 0 12px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin: 10px 0 4px; }
+  input, select, textarea { width: 100%; padding: 9px 10px; border: 1px solid var(--line); border-radius: 7px;
+                            background: var(--bg); color: var(--text); font: inherit; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0 14px; }
+  .btn { display: inline-block; border: 1px solid var(--line); background: var(--panel); color: var(--text);
+         padding: 8px 14px; border-radius: 7px; font: inherit; cursor: pointer; text-decoration: none; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+  .btn.small { padding: 4px 10px; font-size: 13px; }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 14px; }
+  .result { border-radius: 8px; padding: 12px 14px; margin-top: 14px; display: none; }
+  .result.show { display: block; }
+  .result.ok { background: var(--ok-bg); color: var(--ok); }
+  .result.warn { background: var(--warn-bg); color: var(--warn); }
+  .result.bad { background: var(--bad-bg); color: var(--bad); }
+  .item { display: flex; justify-content: space-between; gap: 14px; flex-wrap: wrap; }
+  .item .what { min-width: 0; flex: 1 1 320px; }
+  .item .company { font-weight: 600; }
+  .item .sub { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+  .item .err { margin-top: 8px; font-size: 13px; color: var(--bad); }
+  .pill { font-size: 12px; padding: 2px 8px; border-radius: 10px; background: var(--info-bg); color: var(--accent); }
+  .empty { color: var(--muted); text-align: center; padding: 30px 10px; }
+  .hint { color: var(--muted); font-size: 13px; }
+  ol.hint { padding-left: 20px; }
+  .refform { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+  .refform input { flex: 1 1 220px; }
+  .stat { font-size: 28px; font-weight: 700; }
+  img.shot { max-width: 100%; border: 1px solid var(--line); border-radius: 6px; margin-top: 10px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <div class="top">
+      <h1>Referral First</h1>
+      <div class="meta" id="meta">Loading…</div>
+    </div>
+    <nav id="tabs">
+      <button data-tab="add" class="active">Add internship</button>
+      <button data-tab="waiting_for_referral">Waiting for referral <span class="badge" data-count="waiting_for_referral">0</span></button>
+      <button data-tab="applied">Applied <span class="badge" data-count="applied">0</span></button>
+      <button data-tab="needs_attention">Needs attention <span class="badge" data-count="needs_attention">0</span></button>
+      <button data-tab="archived">Archived</button>
+      <button data-tab="connections">Connections</button>
+      <button data-tab="profile">Resume &amp; profile</button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <section id="add" class="active">
+    <div class="card">
+      <h2>Found an internship?</h2>
+      <p class="hint">Enter the company. If you have a connection there, the posting goes to <b>Waiting for referral</b> so you can ask for one. Otherwise the bot applies right away with your latest resume.</p>
+      <form id="addForm">
+        <label for="f-company">Company *</label>
+        <input id="f-company" required placeholder="e.g. Stripe" autocomplete="off">
+        <div class="grid">
+          <div><label for="f-title">Role title</label><input id="f-title" placeholder="Software Engineering Intern"></div>
+          <div><label for="f-url">Posting / application link</label><input id="f-url" type="url" placeholder="https://boards.greenhouse.io/…"></div>
+        </div>
+        <div class="row">
+          <button class="btn primary" type="submit">Check &amp; route</button>
+          <button class="btn" type="button" id="checkOnly">Just check for a contact</button>
+        </div>
+      </form>
+      <div class="result" id="addResult"></div>
+    </div>
+  </section>
+
+  <section id="waiting_for_referral">
+    <p class="hint">You have at least one connection at each of these companies. Look them up on LinkedIn and ask for a referral. When you get a referral link, paste it below and the bot applies through it.</p>
+    <div id="list-waiting_for_referral"></div>
+  </section>
+  <section id="applied"><div id="list-applied"></div></section>
+  <section id="needs_attention">
+    <p class="hint">The bot didn't submit these: a required question needed your answer, there was a CAPTCHA, or the site wasn't supported. Finish them by hand, then mark them applied.</p>
+    <div id="list-needs_attention"></div>
+  </section>
+  <section id="archived"><div id="list-archived"></div></section>
+
+  <section id="connections">
+    <div class="card">
+      <div class="grid">
+        <div><div class="stat" id="c-total">0</div><div class="hint">connections</div></div>
+        <div><div class="stat" id="c-companies">0</div><div class="hint">companies</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>Import from LinkedIn</h2>
+      <ol class="hint">
+        <li>On LinkedIn go to <b>Settings &amp; Privacy → Data privacy → Get a copy of your data</b>.</li>
+        <li>Choose <b>"Want something in particular?"</b>, tick <b>Connections</b>, and click <b>Request archive</b>.</li>
+        <li>LinkedIn emails you a download link (usually within about 10 minutes). Unzip it and upload <b>Connections.csv</b> here.</li>
+      </ol>
+      <p class="hint">Re-import every few weeks to pick up new connections. Each import replaces the previous list.</p>
+      <form id="connForm" class="row">
+        <input type="file" id="connFile" accept=".csv" required style="flex:1 1 240px">
+        <button class="btn primary" type="submit">Import</button>
+      </form>
+      <div class="result" id="connResult"></div>
+    </div>
+  </section>
+
+  <section id="profile">
+    <div class="card">
+      <h2>Resume</h2>
+      <p class="hint" id="resumeCurrent">No resume uploaded yet.</p>
+      <form id="resumeForm" class="row">
+        <input type="file" id="resumeFile" accept=".pdf,.doc,.docx" required style="flex:1 1 240px">
+        <button class="btn primary" type="submit">Upload new version</button>
+      </form>
+      <div class="result" id="resumeResult"></div>
+    </div>
+    <div class="card">
+      <h2>Application details</h2>
+      <p class="hint">The bot uses these to fill application forms.</p>
+      <form id="profileForm">
+        <div class="grid">
+          <div><label>First name</label><input name="first_name"></div>
+          <div><label>Last name</label><input name="last_name"></div>
+          <div><label>Email *</label><input name="email" type="email" required></div>
+          <div><label>Phone</label><input name="phone"></div>
+          <div><label>LinkedIn URL</label><input name="linkedin_url"></div>
+          <div><label>GitHub URL</label><input name="github_url"></div>
+          <div><label>Website / portfolio</label><input name="website"></div>
+          <div><label>Location (city)</label><input name="location"></div>
+          <div><label>School</label><input name="school"></div>
+        </div>
+        <label for="applyMode">When the bot applies</label>
+        <select id="applyMode">
+          <option value="auto">Fill and submit automatically</option>
+          <option value="dry_run">Fill only, don't submit (test mode)</option>
+        </select>
+        <div class="row"><button class="btn primary" type="submit">Save</button></div>
+      </form>
+      <div class="result" id="profileResult"></div>
+    </div>
+  </section>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const LIST_TABS = ["waiting_for_referral", "applied", "needs_attention", "archived"];
+let current = "add", poll = null;
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, opts);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.detail || res.statusText);
+  return data;
+}
+const json = (method, body) => ({ method, headers: {"Content-Type": "application/json"}, body: JSON.stringify(body) });
+
+function show(el, kind, html) { el.className = `result show ${kind}`; el.innerHTML = html; }
+
+function switchTab(t) {
+  current = t;
+  document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.dataset.tab === t));
+  document.querySelectorAll("main section").forEach(s => s.classList.toggle("active", s.id === t));
+  if (LIST_TABS.includes(t)) renderList(t);
+  if (t === "profile") loadProfile();
+  refreshSummary();
+}
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => switchTab(b.dataset.tab));
+
+async function refreshSummary() {
+  const s = await api("/api/summary");
+  for (const [k, v] of Object.entries(s.counts)) {
+    const b = document.querySelector(`[data-count="${k}"]`); if (b) b.textContent = v;
+  }
+  $("#meta").textContent = `${s.connections} connections · ${s.resume ? "Resume: " + s.resume : "no resume yet"}`;
+  $("#c-total").textContent = s.connections; $("#c-companies").textContent = s.companies;
+  // keep polling while the bot is working
+  clearTimeout(poll);
+  if (s.counts.applying > 0) poll = setTimeout(() => { if (LIST_TABS.includes(current)) renderList(current); refreshSummary(); }, 3000);
+}
+
+function fmt(ts) { return ts ? new Date(ts).toLocaleString([], {dateStyle: "medium", timeStyle: "short"}) : ""; }
+
+function itemHTML(it) {
+  const link = it.referral_link || it.url;
+  const title = it.title ? ` · ${esc(it.title)}` : "";
+  let actions = "", extra = "";
+  if (it.status === "waiting_for_referral") {
+    extra = `<div class="refform">
+        <input placeholder="Paste referral link (optional)" id="ref-${it.id}">
+        <button class="btn primary small" data-act="apply" data-id="${it.id}">Apply now</button>
+      </div>
+      <textarea rows="2" placeholder="Notes, e.g. who you messaged and when" data-notes="${it.id}" style="margin-top:8px">${esc(it.notes)}</textarea>`;
+    actions = `<button class="btn small" data-act="archive" data-id="${it.id}">Archive</button>`;
+  } else if (it.status === "needs_attention") {
+    actions = `<button class="btn small" data-act="retry" data-id="${it.id}">Retry bot</button>
+      <button class="btn small" data-act="applied" data-id="${it.id}">I applied manually</button>
+      <button class="btn small" data-act="archive" data-id="${it.id}">Archive</button>`;
+  } else if (it.status === "archived") {
+    actions = `<button class="btn small" data-act="waiting" data-id="${it.id}">Restore</button>
+      <button class="btn small" data-act="delete" data-id="${it.id}">Delete</button>`;
+  } else if (it.status === "applied") {
+    actions = `<button class="btn small" data-act="archive" data-id="${it.id}">Archive</button>`;
+  }
+  const pill = it.status === "applying" ? `<span class="pill">Bot is applying…</span>`
+    : it.status === "waiting_for_referral" ? `<span class="pill">${it.contact_count} contact${it.contact_count === 1 ? "" : "s"} there</span>`
+    : it.status === "applied" ? `<span class="pill">Applied ${fmt(it.applied_at)}${it.referral_link ? " · via referral" : ""}</span>` : "";
+  const shot = it.has_screenshot && it.status === "needs_attention"
+    ? `<details><summary class="hint" style="cursor:pointer">What the bot saw</summary><img class="shot" loading="lazy" src="/api/internships/${it.id}/screenshot?t=${encodeURIComponent(it.updated_at)}" alt="Screenshot of the application page"></details>` : "";
+  return `<div class="card"><div class="item">
+      <div class="what">
+        <div><span class="company">${esc(it.company)}</span>${title} ${pill}</div>
+        <div class="sub">${link ? `<a href="${esc(link)}" target="_blank" rel="noopener">${esc(link)}</a>` : "No link"} · added ${fmt(it.created_at)}</div>
+        ${it.error ? `<div class="err">${esc(it.error)}</div>` : ""}
+        ${extra}${shot}
+      </div>
+      <div class="row" style="margin-top:0;align-self:flex-start">${actions}</div>
+    </div></div>`;
+}
+
+async function renderList(status) {
+  const box = $(`#list-${status}`);
+  let items = await api(`/api/internships?status=${status}`);
+  if (status === "applied") items = [...await api(`/api/internships?status=applying`), ...items];
+  box.innerHTML = items.length ? items.map(itemHTML).join("") : `<div class="empty">Nothing here yet.</div>`;
+}
+
+document.addEventListener("click", async e => {
+  const b = e.target.closest("[data-act]"); if (!b) return;
+  const id = b.dataset.id, act = b.dataset.act;
+  b.disabled = true;
+  try {
+    if (act === "apply") {
+      await api(`/api/internships/${id}/apply`, json("POST", {referral_link: $(`#ref-${id}`).value || null}));
+    } else if (act === "retry") {
+      await api(`/api/internships/${id}/apply`, json("POST", {}));
+    } else if (act === "delete") {
+      if (!confirm("Delete this internship permanently?")) { b.disabled = false; return; }
+      await api(`/api/internships/${id}`, {method: "DELETE"});
+    } else {
+      const status = {archive: "archived", applied: "applied", waiting: "waiting_for_referral"}[act];
+      await api(`/api/internships/${id}/status`, json("POST", {status}));
+    }
+    renderList(current); refreshSummary();
+  } catch (err) { alert(err.message); b.disabled = false; }
+});
+
+document.addEventListener("change", async e => {
+  const id = e.target.dataset?.notes; if (!id) return;
+  await api(`/api/internships/${id}/notes`, json("POST", {notes: e.target.value}));
+});
+
+$("#checkOnly").onclick = async () => {
+  const company = $("#f-company").value.trim(), out = $("#addResult");
+  if (!company) return $("#f-company").focus();
+  const r = await api(`/api/check?company=${encodeURIComponent(company)}`);
+  r.has_contact
+    ? show(out, "warn", `You have <b>${r.contact_count}</b> connection${r.contact_count === 1 ? "" : "s"} at ${esc(company)}. Worth asking for a referral.`)
+    : show(out, "ok", `No connections at ${esc(company)}.`);
+};
+
+$("#addForm").onsubmit = async e => {
+  e.preventDefault();
+  const out = $("#addResult");
+  const body = { company: $("#f-company").value, title: $("#f-title").value, url: $("#f-url").value };
+  try {
+    const it = await api("/api/internships", json("POST", body));
+    if (it.status === "waiting_for_referral") {
+      show(out, "warn", `You have <b>${it.contact_count}</b> connection${it.contact_count === 1 ? "" : "s"} at ${esc(it.company)}. Moved to <b>Waiting for referral</b>. Reach out before applying.`);
+    } else {
+      show(out, "ok", `No connections at ${esc(it.company)}. The bot is applying now with your latest resume. Watch the <b>Applied</b> tab.`);
+    }
+    $("#addForm").reset();
+    refreshSummary();
+  } catch (err) { show(out, "bad", esc(err.message)); }
+};
+
+$("#connForm").onsubmit = async e => {
+  e.preventDefault();
+  const fd = new FormData(); fd.append("file", $("#connFile").files[0]);
+  try {
+    const r = await api("/api/connections/import", {method: "POST", body: fd});
+    show($("#connResult"), "ok", `Imported ${r.imported} connections.`);
+    refreshSummary();
+  } catch (err) { show($("#connResult"), "bad", esc(err.message)); }
+};
+
+$("#resumeForm").onsubmit = async e => {
+  e.preventDefault();
+  const fd = new FormData(); fd.append("file", $("#resumeFile").files[0]);
+  try {
+    const r = await api("/api/resumes", {method: "POST", body: fd});
+    show($("#resumeResult"), "ok", `Uploaded ${esc(r.filename)}. It will be used for all new applications.`);
+    $("#resumeForm").reset(); loadProfile(); refreshSummary();
+  } catch (err) { show($("#resumeResult"), "bad", esc(err.message)); }
+};
+
+async function loadProfile() {
+  const s = await api("/api/settings");
+  for (const [k, v] of Object.entries(s.profile || {})) {
+    const el = $(`#profileForm [name="${k}"]`); if (el) el.value = v;
+  }
+  $("#applyMode").value = s.apply_mode;
+  const rs = await api("/api/resumes");
+  $("#resumeCurrent").innerHTML = rs.length
+    ? `Current: <b>${esc(rs[0].filename)}</b> (uploaded ${fmt(rs[0].uploaded_at)})${rs.length > 1 ? ` · ${rs.length - 1} older version${rs.length > 2 ? "s" : ""}` : ""}`
+    : "No resume uploaded yet.";
+}
+
+$("#profileForm").onsubmit = async e => {
+  e.preventDefault();
+  const profile = Object.fromEntries(new FormData($("#profileForm")));
+  try {
+    await api("/api/settings", json("PUT", {profile, apply_mode: $("#applyMode").value}));
+    show($("#profileResult"), "ok", "Saved.");
+  } catch (err) { show($("#profileResult"), "bad", esc(err.message)); }
+};
+
+refreshSummary();
+</script>
+</body>
+</html>

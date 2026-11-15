@@ -1,0 +1,12 @@
+<!doctype html><html><body>
+<h1>Software Engineering Intern</h1>
+<form id="application_form" onsubmit="event.preventDefault(); document.body.innerHTML='<h2>Thank you for applying!</h2>';">
+  <label for="first_name">First Name *</label><input id="first_name" name="job_application[first_name]" required>
+  <label for="last_name">Last Name *</label><input id="last_name" name="job_application[last_name]" required>
+  <label for="email">Email *</label><input id="email" type="email" required>
+  <label for="phone">Phone</label><input id="phone">
+  <label for="li">LinkedIn Profile</label><input id="li">
+  <label for="resume">Resume/CV *</label><input id="resume" type="file" required>
+  <label for="cover">Cover Letter</label><input id="cover" type="file">
+  <button id="submit_app" type="submit">Submit Application</button>
+</form></body></html>
