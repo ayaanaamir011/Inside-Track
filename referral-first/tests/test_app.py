@@ -11,24 +11,6 @@ import pytest
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
-@pytest.fixture()
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("RF_DATA_DIR", str(tmp_path))
-    from app import db, main
-    importlib.reload(db)
-    importlib.reload(main)
-    calls = []
-
-    async def fake_apply(iid):
-        calls.append(iid)
-
-    monkeypatch.setattr(main.applier, "run_application", fake_apply)
-    from fastapi.testclient import TestClient
-    c = TestClient(main.app)
-    c.apply_calls = calls
-    return c
-
-
 def import_fixture(client):
     with open(FIXTURES / "Connections.csv", "rb") as f:
         r = client.post("/api/connections/import", files={"file": ("Connections.csv", f, "text/csv")})
@@ -174,3 +156,36 @@ def test_bot_dry_run_does_not_submit(tmp_path, monkeypatch, fixture_server):
     it = db.get_internship(iid)
     assert it["status"] == db.NEEDS_ATTENTION
     assert "Dry run" in it["error"] and "first_name" in it["error"] and "resume" in it["error"]
+
+
+def test_bot_hands_over_sites_that_need_an_account(tmp_path, monkeypatch):
+    applier, db = _setup_for_bot(tmp_path, monkeypatch, "auto")
+    monkeypatch.setenv("CHROMIUM_PATH", "/nonexistent/browser")      # proves no browser is even started
+    workday = _add(db, "https://citi.wd5.myworkdayjobs.com/2/job/New-York/Summer-Analyst_26012345")
+    oracle = _add(db, "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/job/210690282")
+    asyncio.run(applier.run_application(workday))
+    asyncio.run(applier.run_application(oracle))
+    for iid, name in ((workday, "Workday"), (oracle, "Oracle")):
+        it = db.get_internship(iid)
+        assert it["status"] == db.NEEDS_ATTENTION and name in it["error"] and "account" in it["error"]
+    assert applier.account_site("https://jobs.lever.co/zoox/85c6aec7") is None
+    assert applier.account_site("https://notworkday.example/myworkdayjobs.com") is None
+
+
+def test_lever_postings_are_sent_to_their_apply_page():
+    from app.applier import LEVER_POSTING_RE
+    base = "https://jobs.lever.co/palantir/cd64bcd4-50bb-4aeb-a135-4e0487ffd312"
+    for landed in (base, base + "/", base + "?utm_source=newsletter.interninsider.me&utm_medium=newsletter"):
+        assert LEVER_POSTING_RE.match(landed).group(1) == base
+    assert LEVER_POSTING_RE.match(base + "/apply") is None           # already on the form
+    assert LEVER_POSTING_RE.match("https://jobs.lever.co/palantir") is None
+
+
+@pytest.mark.skipif(not _have_browser(), reason="playwright not installed")
+def test_bot_never_touches_a_sign_in_page(tmp_path, monkeypatch, fixture_server):
+    applier, db = _setup_for_bot(tmp_path, monkeypatch, "auto")
+    iid = _add(db, fixture_server + "/login_wall.html")
+    asyncio.run(applier.run_application(iid))
+    it = db.get_internship(iid)
+    assert it["status"] == db.NEEDS_ATTENTION                      # not "applied", though this form would accept anything
+    assert "sign in or create an account" in it["error"]

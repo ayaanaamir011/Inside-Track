@@ -43,9 +43,35 @@ CREATE TABLE IF NOT EXISTS internships (
     contact_count INTEGER NOT NULL DEFAULT 0,
     resume_id INTEGER REFERENCES resumes(id),
     referral_link TEXT, notes TEXT, error TEXT,
-    created_at TEXT NOT NULL, updated_at TEXT NOT NULL, applied_at TEXT
+    created_at TEXT NOT NULL, updated_at TEXT NOT NULL, applied_at TEXT,
+    location TEXT, source TEXT NOT NULL DEFAULT 'manual'
+);
+
+-- Newsletter emails read from Gmail, and every listing found in them.
+CREATE TABLE IF NOT EXISTS newsletter_emails (
+    id INTEGER PRIMARY KEY,
+    message_id TEXT NOT NULL UNIQUE,
+    subject TEXT, sender TEXT, received_at TEXT,
+    processed_at TEXT NOT NULL,
+    note TEXT
+);
+CREATE TABLE IF NOT EXISTS newsletter_listings (
+    id INTEGER PRIMARY KEY,
+    email_id INTEGER NOT NULL REFERENCES newsletter_emails(id) ON DELETE CASCADE,
+    position INTEGER NOT NULL,
+    section TEXT, region TEXT,
+    title TEXT NOT NULL, company TEXT NOT NULL, location TEXT, url TEXT NOT NULL,
+    decision TEXT NOT NULL,          -- skipped | pending | routed | duplicate
+    reason TEXT,
+    internship_id INTEGER REFERENCES internships(id) ON DELETE SET NULL
 );
 """
+
+# Columns added after the first release: (table, column, definition)
+MIGRATIONS = [
+    ("internships", "location", "TEXT"),
+    ("internships", "source", "TEXT NOT NULL DEFAULT 'manual'"),
+]
 
 DEFAULT_SETTINGS = {
     "profile": {
@@ -67,11 +93,19 @@ def init():
         d.mkdir(parents=True, exist_ok=True)
     with connect() as c:
         c.executescript(SCHEMA)
+        for table, column, definition in MIGRATIONS:
+            have = {r["name"] for r in c.execute("PRAGMA table_info(%s)" % table)}
+            if column not in have:
+                c.execute("ALTER TABLE %s ADD COLUMN %s %s" % (table, column, definition))
+    try:
+        os.chmod(DB_PATH, 0o600)   # your data: readable by your user account only
+    except OSError:
+        pass
 
 
 @contextmanager
 def connect():
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=15)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     try:
@@ -81,11 +115,11 @@ def connect():
         conn.close()
 
 
-def get_setting(key):
+def get_setting(key, default=None):
     with connect() as c:
         row = c.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
     if row is None:
-        return DEFAULT_SETTINGS.get(key)
+        return DEFAULT_SETTINGS.get(key, default)
     return json.loads(row["value"])
 
 
@@ -96,6 +130,11 @@ def set_setting(key, value):
             "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             (key, json.dumps(value)),
         )
+
+
+def delete_setting(key):
+    with connect() as c:
+        c.execute("DELETE FROM settings WHERE key=?", (key,))
 
 
 def latest_resume():

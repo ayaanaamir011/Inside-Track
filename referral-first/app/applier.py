@@ -7,14 +7,26 @@ dropdowns, essays...), it does NOT submit and moves the internship to
 "Needs attention" with the list of fields it couldn't answer plus a screenshot.
 
 Works best on Greenhouse, Lever and Ashby postings; other sites use the same
-label-matching heuristics and may or may not work.
+label-matching heuristics and may or may not work. Systems that need an account
+(Workday and the like) are handed straight to you.
 """
 import asyncio
 import os
 import re
 import traceback
+from urllib.parse import urlsplit
 
 from . import db
+
+# Application systems where you must sign up before applying. The bot doesn't try these.
+ACCOUNT_SITES = {
+    "myworkdayjobs.com": "Workday",
+    "myworkdaysite.com": "Workday",
+    "oraclecloud.com": "Oracle Recruiting",
+    "icims.com": "iCIMS",
+    "taleo.net": "Taleo",
+    "successfactors.com": "SuccessFactors",
+}
 
 CONFIRM_RE = re.compile(
     r"thank(s| you) for (applying|your (application|interest))|application (has been |was )?"
@@ -111,10 +123,15 @@ async def _best_frame(page):
     return best
 
 
+LEVER_POSTING_RE = re.compile(r"(https://jobs\.(?:eu\.)?lever\.co/[^/?#]+/[0-9a-f-]{20,})/?(?:[?#].*)?$")
+
+
 async def _open_form(page, url):
-    if re.search(r"jobs\.lever\.co/[^/]+/[0-9a-f-]{20,}/?$", url):
-        url = url.rstrip("/") + "/apply"
     await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+    # Newsletter links pass through a click-tracking redirect, so go by where we landed.
+    lever = LEVER_POSTING_RE.match(page.url)
+    if lever:   # Lever keeps the form on a separate /apply page
+        await page.goto(lever.group(1) + "/apply", wait_until="domcontentloaded", timeout=45000)
     await page.wait_for_timeout(1500)
     frame = await _best_frame(page)
     if await frame.locator("input[type=email], input[type=file]").count() == 0:
@@ -189,12 +206,19 @@ async def run_application(internship_id: int):
         await _run(internship_id)
 
 
-async def _run(internship_id: int):
-    from playwright.async_api import async_playwright
+def account_site(url: str):
+    """The name of the application system if it is one that needs an account, else None."""
+    host = (urlsplit(url).hostname or "").lower()
+    for domain, name in ACCOUNT_SITES.items():
+        if host == domain or host.endswith("." + domain):
+            return name
+    return None
 
+
+async def _run(internship_id: int):
     it = db.get_internship(internship_id)
-    if it is None:
-        return
+    if it is None or it["status"] != db.APPLYING:
+        return   # deleted, archived or handled by hand while it sat in the queue
     url = it["referral_link"] or it["url"]
     resume = db.latest_resume()
     profile = db.get_setting("profile") or {}
@@ -210,6 +234,11 @@ async def _run(internship_id: int):
         return attention("No resume uploaded yet. Upload one in the Resume & Profile tab, then retry.")
     if not profile.get("email"):
         return attention("Your profile has no email. Fill in Resume & Profile, then retry.")
+    by_hand = "Open the link and apply there, then click “I applied manually”."
+    site = account_site(url)
+    if site:
+        return attention("This posting is on %s, which makes you create an account before applying, so the "
+                         "bot can't do it. %s" % (site, by_hand))
 
     db.update_internship(internship_id, status=db.APPLYING, error=None, resume_id=resume["id"])
     headless = os.environ.get("RF_HEADLESS", "1") != "0"
@@ -218,11 +247,19 @@ async def _run(internship_id: int):
         launch["executable_path"] = os.environ["CHROMIUM_PATH"]
 
     try:
+        from playwright.async_api import async_playwright
         async with async_playwright() as p:
             browser = await p.chromium.launch(**launch)
             page = await browser.new_page(viewport={"width": 1280, "height": 1800})
             try:
                 frame = await _open_form(page, url)
+                # Never type into a sign-in or sign-up page (a tracking link can land on one).
+                site = account_site(page.url)
+                if site or await frame.locator("input[type=password]:visible").count():
+                    await page.screenshot(path=str(shot), full_page=True)
+                    return attention("This posting %s, so the bot can't do it. %s" % (
+                        "is on %s, which makes you create an account before applying" % site if site
+                        else "asks you to sign in or create an account before applying", by_hand))
                 filled = await _fill_fields(frame, _profile_values(profile))
                 attached = await _attach_resume(frame, resume["path"])
                 missing = await frame.evaluate(MISSING_REQUIRED_JS)

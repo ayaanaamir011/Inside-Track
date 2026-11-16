@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Referral First</title>
+<link rel="icon" href="data:,">
 <style>
   :root {
     --bg: #f6f7f9; --panel: #fff; --text: #1b1f24; --muted: #5d6673; --line: #e2e5ea;
@@ -21,17 +22,18 @@
   body { margin: 0; background: var(--bg); color: var(--text);
          font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   header { background: var(--panel); border-bottom: 1px solid var(--line); }
-  .wrap { max-width: 1000px; margin: 0 auto; padding: 0 16px; }
+  a { color: var(--accent); }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px; }
   .top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 16px 0 8px; flex-wrap: wrap; }
   h1 { font-size: 20px; margin: 0; }
   .meta { color: var(--muted); font-size: 13px; }
-  nav { display: flex; gap: 4px; overflow-x: auto; }
-  nav button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 10px 12px;
+  nav { display: flex; gap: 2px; overflow-x: auto; }
+  nav button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 10px 10px;
                color: var(--muted); font: inherit; cursor: pointer; white-space: nowrap; }
   nav button.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
   .badge { display: inline-block; min-width: 20px; padding: 0 6px; margin-left: 4px; border-radius: 10px;
            background: var(--line); color: var(--text); font-size: 12px; text-align: center; }
-  main { padding: 24px 0 64px; }
+  main.wrap { padding: 24px 16px 64px; }
   section { display: none; } section.active { display: block; }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px; margin-bottom: 14px; }
   h2 { font-size: 16px; margin: 0 0 12px; }
@@ -63,6 +65,21 @@
   .refform input { flex: 1 1 220px; }
   .stat { font-size: 28px; font-weight: 700; }
   img.shot { max-width: 100%; border: 1px solid var(--line); border-radius: 6px; margin-top: 10px; }
+  .checks { margin-top: 4px; gap: 18px; }
+  label.check { display: inline-flex; align-items: center; gap: 6px; margin: 0; font-size: 15px; color: var(--text); }
+  label.check input { width: auto; }
+  .listing { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap;
+             padding: 8px 0; border-top: 1px solid var(--line); }
+  .listing:first-child { border-top: 0; }
+  .listing .what { min-width: 0; flex: 1 1 300px; }
+  .listing .why { color: var(--muted); font-size: 12px; }
+  .pill.ok { background: var(--ok-bg); color: var(--ok); }
+  .pill.warn { background: var(--warn-bg); color: var(--warn); }
+  .pill.bad { background: var(--bad-bg); color: var(--bad); }
+  .pill.quiet { background: var(--line); color: var(--muted); }
+  details.skipped { margin-top: 10px; }
+  details.skipped > summary { cursor: pointer; color: var(--muted); font-size: 13px; padding: 6px 0; }
+  .tag { font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; }
 </style>
 </head>
 <body>
@@ -78,6 +95,7 @@
       <button data-tab="applied">Applied <span class="badge" data-count="applied">0</span></button>
       <button data-tab="needs_attention">Needs attention <span class="badge" data-count="needs_attention">0</span></button>
       <button data-tab="archived">Archived</button>
+      <button data-tab="gmail">Gmail</button>
       <button data-tab="connections">Connections</button>
       <button data-tab="profile">Resume &amp; profile</button>
     </nav>
@@ -115,6 +133,69 @@
     <div id="list-needs_attention"></div>
   </section>
   <section id="archived"><div id="list-archived"></div></section>
+
+  <section id="gmail">
+    <div class="card" id="gmailConnect" hidden>
+      <h2>Connect Gmail</h2>
+      <p class="hint">The app reads the Intern Insider email that arrives each Monday and sends every listing that matches your filters below through the referral check: a contact at the company puts it in <b>Waiting for referral</b>, otherwise the bot applies. It only reads emails from that one sender, and it never marks, moves, deletes or sends anything.</p>
+      <ol class="hint">
+        <li>Turn on 2-Step Verification for your Google account if it is off: <a href="https://myaccount.google.com/signinoptions/twosv" target="_blank" rel="noopener">myaccount.google.com/signinoptions/twosv</a></li>
+        <li>Create an app password called “Referral First”: <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener">myaccount.google.com/apppasswords</a>. Google shows 16 letters once. Copy them.</li>
+        <li>Paste them below with your Gmail address.</li>
+      </ol>
+      <p class="hint">An app password gives access to your whole mailbox, so it is kept in your computer's keychain when there is one, and you can revoke it on that same Google page at any time.</p>
+      <form id="gmailForm">
+        <div class="grid">
+          <div><label for="g-address">Gmail address</label><input id="g-address" type="email" required autocomplete="username"></div>
+          <div><label for="g-password">App password</label><input id="g-password" type="password" required autocomplete="off"></div>
+        </div>
+        <details style="margin-top:10px"><summary class="hint" style="cursor:pointer">Different sender</summary>
+          <label for="g-sender">Newsletter sender address (leave blank to find Intern Insider automatically)</label>
+          <input id="g-sender" type="email" placeholder="name@example.com">
+        </details>
+        <div class="row"><button class="btn primary" type="submit" id="gmailConnectBtn">Connect</button></div>
+      </form>
+      <div class="result" id="gmailResult"></div>
+    </div>
+
+    <div class="card" id="gmailStatus" hidden>
+      <h2>Gmail</h2>
+      <div id="gmailInfo"></div>
+      <div class="row">
+        <button class="btn primary" id="gmailCheck">Check Gmail now</button>
+        <button class="btn" id="gmailDisconnect">Disconnect</button>
+      </div>
+      <div class="result" id="gmailCheckResult"></div>
+    </div>
+
+    <div class="card">
+      <h2>What to apply to</h2>
+      <form id="filterForm">
+        <label>Countries (the newsletter lists USA and Canada separately)</label>
+        <div class="row checks">
+          <label class="check"><input type="checkbox" name="region" value="USA"> USA</label>
+          <label class="check"><input type="checkbox" name="region" value="Canada"> Canada</label>
+        </div>
+        <label for="kw">Apply when the role title, or the heading it is listed under, contains any of these (comma-separated)</label>
+        <textarea id="kw" rows="4"></textarea>
+        <p class="hint">Every word of a keyword has to appear. Words of four or more letters also match longer words that start with them, so “analy” covers analyst, analytics and analysis, and “financ” covers finance and financial. “financ analy” therefore means any analyst role in finance.</p>
+        <label for="ex">Never apply when it contains any of these</label>
+        <textarea id="ex" rows="2"></textarea>
+        <label for="nlMode">When a newsletter arrives</label>
+        <select id="nlMode">
+          <option value="auto">Handle matches automatically (referral check, then apply)</option>
+          <option value="review">Only list the matches. I'll click Apply.</option>
+        </select>
+        <div class="row">
+          <button class="btn primary" type="submit">Save</button>
+          <button class="btn" type="button" id="kwReset">Reset keywords to defaults</button>
+        </div>
+      </form>
+      <div class="result" id="filterResult"></div>
+    </div>
+
+    <div id="nlEmails"></div>
+  </section>
 
   <section id="connections">
     <div class="card">
@@ -198,6 +279,7 @@ function switchTab(t) {
   document.querySelectorAll("main section").forEach(s => s.classList.toggle("active", s.id === t));
   if (LIST_TABS.includes(t)) renderList(t);
   if (t === "profile") loadProfile();
+  if (t === "gmail") loadGmail();
   refreshSummary();
 }
 document.querySelectorAll("nav button").forEach(b => b.onclick = () => switchTab(b.dataset.tab));
@@ -211,7 +293,11 @@ async function refreshSummary() {
   $("#c-total").textContent = s.connections; $("#c-companies").textContent = s.companies;
   // keep polling while the bot is working
   clearTimeout(poll);
-  if (s.counts.applying > 0) poll = setTimeout(() => { if (LIST_TABS.includes(current)) renderList(current); refreshSummary(); }, 3000);
+  if (s.counts.applying > 0) poll = setTimeout(() => {
+    if (LIST_TABS.includes(current)) renderList(current);
+    if (current === "gmail") renderEmails();
+    refreshSummary();
+  }, 3000);
 }
 
 function fmt(ts) { return ts ? new Date(ts).toLocaleString([], {dateStyle: "medium", timeStyle: "short"}) : ""; }
@@ -237,14 +323,14 @@ function itemHTML(it) {
   } else if (it.status === "applied") {
     actions = `<button class="btn small" data-act="archive" data-id="${it.id}">Archive</button>`;
   }
-  const pill = it.status === "applying" ? `<span class="pill">Bot is applying…</span>`
+  const pill = it.status === "applying" ? `<span class="pill">In the bot's queue…</span>`
     : it.status === "waiting_for_referral" ? `<span class="pill">${it.contact_count} contact${it.contact_count === 1 ? "" : "s"} there</span>`
     : it.status === "applied" ? `<span class="pill">Applied ${fmt(it.applied_at)}${it.referral_link ? " · via referral" : ""}</span>` : "";
   const shot = it.has_screenshot && it.status === "needs_attention"
     ? `<details><summary class="hint" style="cursor:pointer">What the bot saw</summary><img class="shot" loading="lazy" src="/api/internships/${it.id}/screenshot?t=${encodeURIComponent(it.updated_at)}" alt="Screenshot of the application page"></details>` : "";
   return `<div class="card"><div class="item">
       <div class="what">
-        <div><span class="company">${esc(it.company)}</span>${title} ${pill}</div>
+        <div><span class="company">${esc(it.company)}</span>${title}${it.location ? ` · ${esc(it.location)}` : ""} ${pill} ${it.source === "newsletter" ? `<span class="tag">Intern Insider</span>` : ""}</div>
         <div class="sub">${link ? `<a href="${esc(link)}" target="_blank" rel="noopener">${esc(link)}</a>` : "No link"} · added ${fmt(it.created_at)}</div>
         ${it.error ? `<div class="err">${esc(it.error)}</div>` : ""}
         ${extra}${shot}
@@ -253,12 +339,174 @@ function itemHTML(it) {
     </div></div>`;
 }
 
+// Lists refresh every few seconds while the bot works. Only redraw when something
+// actually changed, so a redraw never interrupts typing or closes what you opened.
+const lastDrawn = {};
+function unchanged(key, data) {
+  const sig = JSON.stringify(data);
+  if (lastDrawn[key] === sig) return true;
+  lastDrawn[key] = sig;
+  return false;
+}
+
 async function renderList(status) {
   const box = $(`#list-${status}`);
   let items = await api(`/api/internships?status=${status}`);
   if (status === "applied") items = [...await api(`/api/internships?status=applying`), ...items];
+  if (unchanged(status, items)) return;
+  const typed = {};
+  box.querySelectorAll("input[id^='ref-']").forEach(i => { if (i.value) typed[i.id] = i.value; });
   box.innerHTML = items.length ? items.map(itemHTML).join("") : `<div class="empty">Nothing here yet.</div>`;
+  for (const [id, v] of Object.entries(typed)) { const el = document.getElementById(id); if (el) el.value = v; }
 }
+
+// ---------- Gmail tab ----------
+
+const splitList = s => s.split(/[,\n]/).map(x => x.trim()).filter(Boolean);
+let gmailDefaults = {keywords: [], exclude: []};
+
+function fillFilters(f) {
+  document.querySelectorAll('#filterForm [name="region"]').forEach(cb => cb.checked = f.regions.includes(cb.value));
+  $("#kw").value = f.keywords.join(", ");
+  $("#ex").value = f.exclude.join(", ");
+  $("#nlMode").value = f.mode;
+}
+
+async function loadGmail() {
+  const s = await api("/api/gmail");
+  gmailDefaults = s.defaults;
+  $("#gmailConnect").hidden = s.connected;
+  $("#gmailStatus").hidden = !s.connected;
+  fillFilters(s.filters);
+  if (s.connected) {
+    const st = s.status || {};
+    const where = s.storage === "keychain" ? "your computer's keychain" : "this app's data folder on your computer";
+    let html = `<p>Connected as <b>${esc(s.address)}</b>, reading emails from <b>${esc(s.sender)}</b>.</p>
+      <p class="hint">${s.ready
+        ? `Checks automatically every ${s.check_minutes} minutes while this app is running${st.last_checked ? `. Last checked ${fmt(st.last_checked)}` : ""}.`
+        : `<b>Not checking yet.</b> ${esc(s.todo)}`}
+        The app password is stored in ${where}.</p>`;
+    if (st.last_error) html += `<div class="result show bad">${esc(st.last_error)}</div>`;
+    $("#gmailInfo").innerHTML = html;
+  }
+  renderEmails();
+}
+
+function listingStatus(l) {
+  if (l.decision === "pending") return `<button class="btn primary small" data-nl="apply" data-id="${l.id}">Apply</button>`;
+  if (l.decision === "skipped") return `<button class="btn small" data-nl="apply" data-id="${l.id}">Apply anyway</button>`;
+  const pre = l.decision === "duplicate" ? "Already in your list · " : "";
+  const st = l.internship_status;
+  if (st === "waiting_for_referral") return `<span class="pill warn">${pre}Waiting for referral · ${l.contact_count} contact${l.contact_count === 1 ? "" : "s"}</span>`;
+  if (st === "applying") return `<span class="pill">${pre}In the bot's queue…</span>`;
+  if (st === "applied") return `<span class="pill ok">${pre}Applied</span>`;
+  if (st === "needs_attention") return `<span class="pill bad">${pre}Needs attention</span>`;
+  if (st === "archived") return `<span class="pill quiet">${pre}Archived</span>`;
+  return `<span class="pill quiet">Removed from your list</span>`;
+}
+
+function listingHTML(l) {
+  const where = [l.section, l.region].filter(Boolean).map(esc).join(" · ");
+  return `<div class="listing">
+      <div class="what">
+        <div><a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.title)}</a> @ <b>${esc(l.company)}</b>${l.location ? ` – ${esc(l.location)}` : ""}</div>
+        <div class="why">${where}${where && l.reason ? " · " : ""}${esc(l.reason)}</div>
+      </div>
+      <div>${listingStatus(l)}</div>
+    </div>`;
+}
+
+async function renderEmails() {
+  const emails = await api("/api/newsletter/emails");
+  const box = $("#nlEmails");
+  if (unchanged("emails", emails)) return;
+  const open = new Set([...box.querySelectorAll("details.skipped[open]")].map(d => d.dataset.email));
+  if (!emails.length) {
+    box.innerHTML = `<div class="empty">No newsletter emails processed yet.</div>`;
+    return;
+  }
+  box.innerHTML = emails.map(e => {
+    const matched = e.listings.filter(l => l.decision !== "skipped");
+    const skipped = e.listings.filter(l => l.decision === "skipped");
+    const pending = matched.filter(l => l.decision === "pending").length;
+    return `<div class="card">
+        <h2>${esc(e.subject || "(no subject)")}</h2>
+        <div class="sub" style="color:var(--muted);font-size:13px;margin-bottom:8px">Received ${fmt(e.received_at || e.processed_at)} · ${e.listings.length} listings · ${matched.length} matched · ${skipped.length} skipped</div>
+        ${e.note ? `<div class="result show warn">${esc(e.note)}</div>` : ""}
+        ${pending ? `<div class="row" style="margin:0 0 8px"><button class="btn primary small" data-nl="apply-all" data-id="${e.id}">Apply to all ${pending} waiting for your OK</button></div>` : ""}
+        ${matched.map(listingHTML).join("")}
+        ${skipped.length ? `<details class="skipped" data-email="${e.id}"${open.has(String(e.id)) ? " open" : ""}><summary>Skipped (${skipped.length})</summary>${skipped.map(listingHTML).join("")}</details>` : ""}
+      </div>`;
+  }).join("");
+}
+
+$("#gmailForm").onsubmit = async e => {
+  e.preventDefault();
+  const btn = $("#gmailConnectBtn"), out = $("#gmailResult");
+  btn.disabled = true; btn.textContent = "Connecting…";
+  try {
+    await api("/api/gmail/connect", json("POST", {
+      address: $("#g-address").value, app_password: $("#g-password").value, sender: $("#g-sender").value || null,
+    }));
+    $("#g-password").value = "";
+    out.className = "result";
+    await loadGmail();
+  } catch (err) { show(out, "bad", esc(err.message)); }
+  btn.disabled = false; btn.textContent = "Connect";
+};
+
+$("#gmailDisconnect").onclick = async () => {
+  if (!confirm("Disconnect Gmail and forget the app password?")) return;
+  await api("/api/gmail/disconnect", {method: "POST"});
+  $("#gmailCheckResult").className = "result";
+  loadGmail();
+};
+
+$("#gmailCheck").onclick = async () => {
+  const btn = $("#gmailCheck"), out = $("#gmailCheckResult");
+  btn.disabled = true; btn.textContent = "Checking…";
+  try {
+    const r = await api("/api/gmail/check", {method: "POST"});
+    if (!r.new_emails) {
+      show(out, "ok", r.found ? "No new newsletter since the last check." : "No Intern Insider email in the past week.");
+    } else {
+      const parts = [];
+      if (r.applying) parts.push(`${r.applying} sent to the bot`);
+      if (r.waiting) parts.push(`${r.waiting} waiting for referral`);
+      if (r.pending) parts.push(`${r.pending} waiting for your OK`);
+      show(out, "ok", `Read ${r.new_emails} new email${r.new_emails === 1 ? "" : "s"}: ${r.listings} listings, ${r.matched} matched your filters${parts.length ? " (" + parts.join(", ") + ")" : ""}.`);
+    }
+    await loadGmail(); refreshSummary();
+  } catch (err) { show(out, "bad", esc(err.message)); loadGmail(); }
+  btn.disabled = false; btn.textContent = "Check Gmail now";
+};
+
+$("#filterForm").onsubmit = async e => {
+  e.preventDefault();
+  const regions = [...document.querySelectorAll('#filterForm [name="region"]:checked')].map(cb => cb.value);
+  try {
+    await api("/api/gmail/filters", json("PUT", {
+      regions, keywords: splitList($("#kw").value), exclude: splitList($("#ex").value), mode: $("#nlMode").value,
+    }));
+    show($("#filterResult"), "ok", "Saved. This applies to newsletters read from now on.");
+    loadGmail();
+  } catch (err) { show($("#filterResult"), "bad", esc(err.message)); }
+};
+
+$("#kwReset").onclick = () => {
+  $("#kw").value = gmailDefaults.keywords.join(", ");
+  $("#ex").value = gmailDefaults.exclude.join(", ");
+};
+
+document.addEventListener("click", async e => {
+  const b = e.target.closest("[data-nl]"); if (!b) return;
+  b.disabled = true;
+  try {
+    if (b.dataset.nl === "apply-all") await api(`/api/newsletter/emails/${b.dataset.id}/apply-all`, {method: "POST"});
+    else await api(`/api/newsletter/listings/${b.dataset.id}/apply`, {method: "POST"});
+    await renderEmails(); refreshSummary();
+  } catch (err) { alert(err.message); b.disabled = false; }
+});
 
 document.addEventListener("click", async e => {
   const b = e.target.closest("[data-act]"); if (!b) return;

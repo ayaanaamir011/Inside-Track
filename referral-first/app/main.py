@@ -1,40 +1,98 @@
+import asyncio
+import os
 import re
+import traceback
+from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import List, Optional
+from urllib.parse import urlsplit
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import applier, db
-from .companies import matches, normalize
+from . import applier, db, inbox, routing
 from .linkedin_import import parse_connections_csv
 
 STATIC = Path(__file__).parent / "static"
+GMAIL_CHECK_MINUTES = max(5, int(os.environ.get("RF_GMAIL_CHECK_MINUTES", "30")))
 
-app = FastAPI(title="Referral First")
 db.init()
+
+_tasks = set()
+
+
+def _spawn(coro):
+    """Run a coroutine in the background and keep it alive until it finishes."""
+    task = asyncio.get_running_loop().create_task(coro)
+    _tasks.add(task)
+    task.add_done_callback(_tasks.discard)
+
+
+async def _gmail_loop():
+    """While the app is running, look for a new newsletter every half hour."""
+    await asyncio.sleep(10)
+    while True:
+        try:
+            if inbox.ready():
+                summary = await inbox.check()
+                for iid in summary["apply_ids"]:
+                    _spawn(applier.run_application(iid))
+        except inbox.InboxError:
+            pass   # already recorded for the Gmail tab
+        except Exception:
+            traceback.print_exc()
+        await asyncio.sleep(GMAIL_CHECK_MINUTES * 60)
+
+
+@asynccontextmanager
+async def lifespan(_app):
+    # Pick up applications that were still queued when the app was last closed.
+    for iid in routing.interrupted_ids():
+        _spawn(applier.run_application(iid))
+    _spawn(_gmail_loop())
+    yield
+    for task in list(_tasks):
+        task.cancel()
+
+
+class LocalOnly:
+    """Only answer pages this app served, on this computer.
+
+    The app can read a mailbox and submit applications, and it has no login. So a
+    request is refused when it is addressed to anything but localhost (another
+    machine, or a website using a DNS trick), or when a browser says it was sent
+    by a page from somewhere else (the Origin header).
+    """
+
+    def __init__(self, inner):
+        self.inner = inner
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http":
+            headers = {k.decode("latin-1"): v.decode("latin-1") for k, v in scope["headers"]}
+            host = headers.get("host", "")
+            name = host.split("]")[0] + "]" if host.startswith("[") else host.rsplit(":", 1)[0]
+            origin = headers.get("origin")
+            if name not in ("127.0.0.1", "localhost", "[::1]") or (
+                    origin is not None and urlsplit(origin).netloc != host):
+                refusal = JSONResponse({"detail": "This app only answers on the computer it runs on."},
+                                       status_code=403)
+                await refusal(scope, receive, send)
+                return
+        await self.inner(scope, receive, send)
+
+
+app = FastAPI(title="Referral First", lifespan=lifespan)
+app.add_middleware(LocalOnly)
 
 
 # ---------- contact lookup (counts only, never names) ----------
 
-def contact_count(company: str) -> int:
-    q = normalize(company)
-    if not q:
-        return 0
-    first = q.split()[0]
-    with db.connect() as c:
-        rows = c.execute(
-            "SELECT company_norm, COUNT(*) n FROM connections "
-            "WHERE company_norm LIKE ? OR ? LIKE company_norm || '%' GROUP BY company_norm",
-            (first + "%", q),
-        ).fetchall()
-    return sum(r["n"] for r in rows if matches(q, r["company_norm"]))
-
-
 @app.get("/api/check")
 def check(company: str):
-    n = contact_count(company)
+    n = routing.contact_count(company)
     return {"company": company, "has_contact": n > 0, "contact_count": n}
 
 
@@ -42,12 +100,12 @@ def check(company: str):
 
 class NewInternship(BaseModel):
     company: str
-    title: str | None = None
-    url: str | None = None
+    title: Optional[str] = None
+    url: Optional[str] = None
 
 
 class ApplyRequest(BaseModel):
-    referral_link: str | None = None
+    referral_link: Optional[str] = None
 
 
 class StatusChange(BaseModel):
@@ -81,23 +139,14 @@ def add_internship(body: NewInternship, background: BackgroundTasks):
         if dup:
             raise HTTPException(409, f"You already added this posting (status: {dup['status'].replace('_', ' ')}).")
 
-    n = contact_count(company)
-    status = db.WAITING if n > 0 else db.APPLYING
-    ts = db.now()
-    with db.connect() as c:
-        cur = c.execute(
-            "INSERT INTO internships(company, company_norm, title, url, status, contact_count, created_at, updated_at) "
-            "VALUES(?,?,?,?,?,?,?,?)",
-            (company, normalize(company), (body.title or "").strip() or None, url, status, n, ts, ts),
-        )
-        iid = cur.lastrowid
-    if status == db.APPLYING:
-        background.add_task(applier.run_application, iid)
-    return _row(db.get_internship(iid))
+    row = routing.create(company, (body.title or "").strip() or None, url)
+    if row["status"] == db.APPLYING:
+        background.add_task(applier.run_application, row["id"])
+    return _row(row)
 
 
 @app.get("/api/internships")
-def list_internships(status: str | None = None):
+def list_internships(status: Optional[str] = None):
     with db.connect() as c:
         if status:
             rows = c.execute("SELECT * FROM internships WHERE status=? ORDER BY updated_at DESC", (status,)).fetchall()
@@ -128,7 +177,7 @@ def _require(iid):
 
 
 @app.post("/api/internships/{iid}/apply")
-def apply_now(iid: int, background: BackgroundTasks, body: ApplyRequest | None = None):
+def apply_now(iid: int, background: BackgroundTasks, body: Optional[ApplyRequest] = None):
     it = _require(iid)
     if it["status"] == db.APPLYING:
         raise HTTPException(409, "Already applying.")
@@ -193,10 +242,12 @@ async def import_connections(file: UploadFile = File(...), replace: bool = Form(
             [{k: r.get(k) for k in ("first_name", "last_name", "url", "company", "company_norm",
                                     "position", "connected_on")} for r in rows],
         )
-    # Re-score internships still waiting / not yet applied with fresh data.
+    # Refresh the contact counts shown on internships still waiting for a referral.
     with db.connect() as c:
-        for it in c.execute("SELECT id, company FROM internships WHERE status=?", (db.WAITING,)).fetchall():
-            c.execute("UPDATE internships SET contact_count=? WHERE id=?", (contact_count(it["company"]), it["id"]))
+        waiting = c.execute("SELECT id, company FROM internships WHERE status=?", (db.WAITING,)).fetchall()
+    counts = [(routing.contact_count(it["company"]), it["id"]) for it in waiting]
+    with db.connect() as c:
+        c.executemany("UPDATE internships SET contact_count=? WHERE id=?", counts)
     return {"imported": len(rows)}
 
 
@@ -244,9 +295,93 @@ def put_settings(body: Settings):
     return get_settings()
 
 
+# ---------- Gmail newsletter import ----------
+
+class GmailConnect(BaseModel):
+    address: str
+    app_password: str
+    sender: Optional[str] = None
+
+
+class NewsletterFilters(BaseModel):
+    regions: List[str]
+    keywords: List[str]
+    exclude: List[str] = []
+    mode: str = "auto"
+
+
+def _gmail_state():
+    s = inbox.state()
+    s["check_minutes"] = GMAIL_CHECK_MINUTES
+    return s
+
+
+@app.get("/api/gmail")
+def gmail_state():
+    return _gmail_state()
+
+
+@app.post("/api/gmail/connect")
+async def gmail_connect(body: GmailConnect):
+    try:
+        await asyncio.to_thread(inbox.connect, body.address, body.app_password, body.sender)
+    except inbox.InboxError as e:
+        raise HTTPException(400, str(e))
+    return _gmail_state()
+
+
+@app.post("/api/gmail/disconnect")
+def gmail_disconnect():
+    inbox.disconnect()
+    return _gmail_state()
+
+
+@app.put("/api/gmail/filters")
+def gmail_filters(body: NewsletterFilters):
+    try:
+        inbox.save_filters(body.regions, body.keywords, body.exclude, body.mode)
+    except inbox.InboxError as e:
+        raise HTTPException(400, str(e))
+    return _gmail_state()
+
+
+@app.post("/api/gmail/check")
+async def gmail_check(background: BackgroundTasks):
+    try:
+        result = await inbox.check()
+    except inbox.InboxError as e:
+        raise HTTPException(400, str(e))
+    for iid in result.pop("apply_ids"):
+        background.add_task(applier.run_application, iid)
+    return result
+
+
+@app.get("/api/newsletter/emails")
+def newsletter_emails():
+    return inbox.recent_emails()
+
+
+@app.post("/api/newsletter/listings/{listing_id}/apply")
+async def newsletter_apply(listing_id: int, background: BackgroundTasks):
+    listing, iid = await asyncio.to_thread(inbox.apply_listing, listing_id)
+    if listing is None:
+        raise HTTPException(404, "Not found")
+    if iid:
+        background.add_task(applier.run_application, iid)
+    return listing
+
+
+@app.post("/api/newsletter/emails/{email_id}/apply-all")
+async def newsletter_apply_all(email_id: int, background: BackgroundTasks):
+    ids = await asyncio.to_thread(inbox.apply_all_pending, email_id)
+    for iid in ids:
+        background.add_task(applier.run_application, iid)
+    return {"queued": len(ids)}
+
+
 @app.get("/")
 def index():
-    return FileResponse(STATIC / "index.html")
+    return FileResponse(STATIC / "index.html", headers={"Cache-Control": "no-cache"})
 
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
