@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import applier, db, inbox, routing
+from . import applier, companies, db, inbox, routing
 from .linkedin_import import parse_connections_csv
 
 STATIC = Path(__file__).parent / "static"
@@ -48,7 +48,10 @@ async def _gmail_loop():
 
 @asynccontextmanager
 async def lifespan(_app):
-    # Pick up applications that were still queued when the app was last closed.
+    # Re-run the contact check first (the matching rules may be newer than the stored results),
+    # then pick up applications that were still queued when the app was last closed.
+    if routing.connections_loaded():
+        routing.recount()
     for iid in routing.interrupted_ids():
         _spawn(applier.run_application(iid))
     _spawn(_gmail_loop())
@@ -92,8 +95,10 @@ app.add_middleware(LocalOnly)
 
 @app.get("/api/check")
 def check(company: str):
-    n = routing.contact_count(company)
-    return {"company": company, "has_contact": n > 0, "contact_count": n}
+    listed_as = routing.contacts_at(company)
+    n = sum(h["count"] for h in listed_as)
+    return {"company": company, "has_contact": n > 0, "contact_count": n, "listed_as": listed_as,
+            "connections_loaded": routing.connections_loaded()}
 
 
 # ---------- internships ----------
@@ -114,6 +119,10 @@ class StatusChange(BaseModel):
 
 class NotesChange(BaseModel):
     notes: str
+
+
+NO_CONNECTIONS = ("Import your LinkedIn connections first (Connections tab). Until then the app can't tell "
+                  "where you have contacts, so it won't apply to anything.")
 
 
 def _row(r):
@@ -139,10 +148,15 @@ def add_internship(body: NewInternship, background: BackgroundTasks):
         if dup:
             raise HTTPException(409, f"You already added this posting (status: {dup['status'].replace('_', ' ')}).")
 
+    if not routing.connections_loaded():
+        raise HTTPException(400, NO_CONNECTIONS)
+
     row = routing.create(company, (body.title or "").strip() or None, url)
     if row["status"] == db.APPLYING:
         background.add_task(applier.run_application, row["id"])
-    return _row(row)
+    d = _row(row)
+    d["listed_as"] = routing.contacts_at(company)
+    return d
 
 
 @app.get("/api/internships")
@@ -152,14 +166,19 @@ def list_internships(status: Optional[str] = None):
             rows = c.execute("SELECT * FROM internships WHERE status=? ORDER BY updated_at DESC", (status,)).fetchall()
         else:
             rows = c.execute("SELECT * FROM internships ORDER BY updated_at DESC").fetchall()
-    return [_row(r) for r in rows]
+    out = [_row(r) for r in rows]
+    known = routing.employers()
+    for d in out:
+        if d["status"] != db.ARCHIVED:     # which employer names your contacts there are listed under
+            d["listed_as"] = routing.contacts_at(d["company"], known)
+    return out
 
 
 @app.get("/api/summary")
 def summary():
     with db.connect() as c:
         counts = {r["status"]: r["n"] for r in c.execute("SELECT status, COUNT(*) n FROM internships GROUP BY status")}
-        conns = c.execute("SELECT COUNT(*) n, COUNT(DISTINCT company_norm) k FROM connections").fetchone()
+        conns = c.execute("SELECT COUNT(*) n, COUNT(DISTINCT company) k FROM connections").fetchone()
     r = db.latest_resume()
     return {
         "counts": {s: counts.get(s, 0) for s in db.STATUSES},
@@ -186,7 +205,8 @@ def apply_now(iid: int, background: BackgroundTasks, body: Optional[ApplyRequest
         raise HTTPException(400, "Referral link must start with http:// or https://")
     if link:
         db.update_internship(iid, referral_link=link)
-    db.update_internship(iid, status=db.APPLYING, error=None)
+    # referral_decided: you chose to go ahead, so a later contact check won't pull it back.
+    db.update_internship(iid, status=db.APPLYING, error=None, referral_decided=1)
     background.add_task(applier.run_application, iid)
     return _row(db.get_internship(iid))
 
@@ -230,7 +250,7 @@ def screenshot(iid: int):
 @app.post("/api/connections/import")
 async def import_connections(file: UploadFile = File(...), replace: bool = Form(True)):
     try:
-        rows = parse_connections_csv(await file.read())
+        rows, no_employer = parse_connections_csv(await file.read())
     except ValueError as e:
         raise HTTPException(400, str(e))
     with db.connect() as c:
@@ -242,13 +262,38 @@ async def import_connections(file: UploadFile = File(...), replace: bool = Form(
             [{k: r.get(k) for k in ("first_name", "last_name", "url", "company", "company_norm",
                                     "position", "connected_on")} for r in rows],
         )
-    # Refresh the contact counts shown on internships still waiting for a referral.
-    with db.connect() as c:
-        waiting = c.execute("SELECT id, company FROM internships WHERE status=?", (db.WAITING,)).fetchall()
-    counts = [(routing.contact_count(it["company"]), it["id"]) for it in waiting]
-    with db.connect() as c:
-        c.executemany("UPDATE internships SET contact_count=? WHERE id=?", counts)
-    return {"imported": len(rows)}
+    return {"imported": len(rows), "no_employer": no_employer, "moved": routing.recount()}
+
+
+@app.get("/api/connections/companies")
+def connection_companies(q: str = ""):
+    """How employers are written in your connections (names and head counts, never people)."""
+    known = routing.employers()
+    raw, squashed = companies.fold(q).strip(), companies.normalize(q).replace(" ", "")
+    hits = [(name, n) for name, n in known
+            if not raw or raw in companies.fold(name)
+            or (squashed and squashed in companies.normalize(name).replace(" ", ""))]
+    hits.sort(key=lambda h: (-h[1], h[0].lower()))
+    return {"companies": len(known), "matching": len(hits),
+            "results": [{"company": name, "count": n} for name, n in hits[:60]]}
+
+
+class CompanyGroups(BaseModel):
+    text: str
+
+
+@app.get("/api/connections/groups")
+def get_company_groups():
+    return {"text": "\n".join(" = ".join(g) for g in routing.user_groups()),
+            "built_in": [" = ".join(g) for g in companies.KNOWN_GROUP_NAMES]}
+
+
+@app.put("/api/connections/groups")
+def put_company_groups(body: CompanyGroups):
+    """Your own "same company" lines, e.g. "Meta = Facebook = Instagram"."""
+    groups = companies.parse_groups(body.text)
+    db.set_setting("company_groups", groups)
+    return {"groups": len(groups), "moved": routing.recount()}
 
 
 # ---------- resumes ----------

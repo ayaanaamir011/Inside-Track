@@ -201,7 +201,7 @@
     <div class="card">
       <div class="grid">
         <div><div class="stat" id="c-total">0</div><div class="hint">connections</div></div>
-        <div><div class="stat" id="c-companies">0</div><div class="hint">companies</div></div>
+        <div><div class="stat" id="c-companies">0</div><div class="hint">employer names</div></div>
       </div>
     </div>
     <div class="card">
@@ -217,6 +217,27 @@
         <button class="btn primary" type="submit">Import</button>
       </form>
       <div class="result" id="connResult"></div>
+    </div>
+
+    <div class="card">
+      <h2>How a company is listed</h2>
+      <p class="hint">LinkedIn's file gives one employer per connection: the company on their <b>current</b> position, written the way they wrote it. Someone who interned at a company last summer, or starts there next year, is listed under whatever they have now (often their university), so they won't count. Search here to see what the app has to work with. It shows employer names and how many connections, never who.</p>
+      <input id="coSearch" placeholder="Search employers, e.g. morgan" autocomplete="off">
+      <div class="hint" id="coCount" style="margin-top:8px"></div>
+      <div id="coList"></div>
+    </div>
+
+    <div class="card">
+      <h2>Same company, different names</h2>
+      <p class="hint">The app already matches different spellings, names inside longer names ("Disney" and "The Walt Disney Company"), small typos, and the well-known pairs listed below. If it misses one of yours, add a line here, with the names separated by <b>=</b>.</p>
+      <form id="groupForm">
+        <textarea id="groupText" rows="3" placeholder="Acme Robotics = Acme Labs = Roadrunner Inc"></textarea>
+        <div class="row"><button class="btn primary" type="submit">Save</button></div>
+      </form>
+      <div class="result" id="groupResult"></div>
+      <details style="margin-top:12px"><summary class="hint" style="cursor:pointer">Pairs the app already knows</summary>
+        <div class="hint" id="groupBuiltIn" style="margin-top:8px;line-height:1.8"></div>
+      </details>
     </div>
   </section>
 
@@ -280,6 +301,7 @@ function switchTab(t) {
   if (LIST_TABS.includes(t)) renderList(t);
   if (t === "profile") loadProfile();
   if (t === "gmail") loadGmail();
+  if (t === "connections") { searchEmployers(); loadGroups(); }
   refreshSummary();
 }
 document.querySelectorAll("nav button").forEach(b => b.onclick = () => switchTab(b.dataset.tab));
@@ -301,6 +323,14 @@ async function refreshSummary() {
 }
 
 function fmt(ts) { return ts ? new Date(ts).toLocaleString([], {dateStyle: "medium", timeStyle: "short"}) : ""; }
+
+// Where to find your contacts for this internship: employer names and counts, never people.
+function contactLine(it) {
+  if (!it.listed_as || !it.listed_as.length) return "";
+  if (it.status === "waiting_for_referral") return `<div class="sub">Look for them on LinkedIn under: ${nameList(it.listed_as)}</div>`;
+  const n = it.listed_as.reduce((sum, h) => sum + h.count, 0);
+  return `<div class="sub">You have ${n} contact${n === 1 ? "" : "s"} there (${nameList(it.listed_as)}).${it.status === "applied" ? " It can still be worth telling them you applied." : ""}</div>`;
+}
 
 function itemHTML(it) {
   const link = it.referral_link || it.url;
@@ -332,6 +362,7 @@ function itemHTML(it) {
       <div class="what">
         <div><span class="company">${esc(it.company)}</span>${title}${it.location ? ` · ${esc(it.location)}` : ""} ${pill} ${it.source === "newsletter" ? `<span class="tag">Intern Insider</span>` : ""}</div>
         <div class="sub">${link ? `<a href="${esc(link)}" target="_blank" rel="noopener">${esc(link)}</a>` : "No link"} · added ${fmt(it.created_at)}</div>
+        ${contactLine(it)}
         ${it.error ? `<div class="err">${esc(it.error)}</div>` : ""}
         ${extra}${shot}
       </div>
@@ -359,6 +390,43 @@ async function renderList(status) {
   box.innerHTML = items.length ? items.map(itemHTML).join("") : `<div class="empty">Nothing here yet.</div>`;
   for (const [id, v] of Object.entries(typed)) { const el = document.getElementById(id); if (el) el.value = v; }
 }
+
+// ---------- Connections tab ----------
+
+const movedNote = n => n ? ` ${n} internship${n === 1 ? "" : "s"} moved to <b>Waiting for referral</b> because you turn out to have a contact there.` : "";
+
+async function searchEmployers() {
+  const q = $("#coSearch").value.trim();
+  const r = await api(`/api/connections/companies?q=${encodeURIComponent(q)}`);
+  if (q !== $("#coSearch").value.trim()) return;      // a newer search is already on its way
+  if (!r.companies) {
+    $("#coCount").textContent = "No connections imported yet.";
+    $("#coList").innerHTML = "";
+    return;
+  }
+  $("#coCount").textContent = q
+    ? `${r.matching} of ${r.companies} employers match “${q}”${r.matching > r.results.length ? `. Showing the ${r.results.length} with the most connections.` : "."}`
+    : `${r.companies} employers. Showing the ${r.results.length} with the most connections.`;
+  $("#coList").innerHTML = r.results.map(h =>
+    `<div class="listing"><div class="what">${esc(h.company)}</div><div><span class="pill quiet">${h.count} connection${h.count === 1 ? "" : "s"}</span></div></div>`).join("");
+}
+let coTimer = null;
+$("#coSearch").oninput = () => { clearTimeout(coTimer); coTimer = setTimeout(searchEmployers, 200); };
+
+async function loadGroups() {
+  const g = await api("/api/connections/groups");
+  if (document.activeElement !== $("#groupText")) $("#groupText").value = g.text;
+  $("#groupBuiltIn").innerHTML = g.built_in.map(esc).join("<br>");
+}
+
+$("#groupForm").onsubmit = async e => {
+  e.preventDefault();
+  try {
+    const r = await api("/api/connections/groups", json("PUT", {text: $("#groupText").value}));
+    show($("#groupResult"), "ok", `Saved ${r.groups} line${r.groups === 1 ? "" : "s"}.${movedNote(r.moved)}`);
+    refreshSummary();
+  } catch (err) { show($("#groupResult"), "bad", esc(err.message)); }
+};
 
 // ---------- Gmail tab ----------
 
@@ -533,13 +601,20 @@ document.addEventListener("change", async e => {
   await api(`/api/internships/${id}/notes`, json("POST", {notes: e.target.value}));
 });
 
+const NO_CONNECTIONS = "Import your LinkedIn connections first (Connections tab). Until then the app can't tell where you have contacts, so it won't apply to anything.";
+const NOT_FOUND_HELP = `If you know someone there, look the company up on the <b>Connections</b> tab to see how LinkedIn lists their employer.`;
+// " (listed in your connections as Google ×2, YouTube ×1)": employer names only, never who.
+const nameList = names => names.map(h => `${esc(h.company)}${h.count > 1 ? " ×" + h.count : ""}`).join(", ");
+const listedAs = names => names && names.length ? ` (listed in your connections as ${nameList(names)})` : "";
+
 $("#checkOnly").onclick = async () => {
   const company = $("#f-company").value.trim(), out = $("#addResult");
   if (!company) return $("#f-company").focus();
   const r = await api(`/api/check?company=${encodeURIComponent(company)}`);
+  if (!r.connections_loaded) return show(out, "bad", NO_CONNECTIONS);
   r.has_contact
-    ? show(out, "warn", `You have <b>${r.contact_count}</b> connection${r.contact_count === 1 ? "" : "s"} at ${esc(company)}. Worth asking for a referral.`)
-    : show(out, "ok", `No connections at ${esc(company)}.`);
+    ? show(out, "warn", `You have <b>${r.contact_count}</b> connection${r.contact_count === 1 ? "" : "s"} at ${esc(company)}${listedAs(r.listed_as)}. Worth asking for a referral.`)
+    : show(out, "ok", `No connections found at ${esc(company)}. ${NOT_FOUND_HELP}`);
 };
 
 $("#addForm").onsubmit = async e => {
@@ -549,9 +624,9 @@ $("#addForm").onsubmit = async e => {
   try {
     const it = await api("/api/internships", json("POST", body));
     if (it.status === "waiting_for_referral") {
-      show(out, "warn", `You have <b>${it.contact_count}</b> connection${it.contact_count === 1 ? "" : "s"} at ${esc(it.company)}. Moved to <b>Waiting for referral</b>. Reach out before applying.`);
+      show(out, "warn", `You have <b>${it.contact_count}</b> connection${it.contact_count === 1 ? "" : "s"} at ${esc(it.company)}${listedAs(it.listed_as)}. Moved to <b>Waiting for referral</b>. Reach out before applying.`);
     } else {
-      show(out, "ok", `No connections at ${esc(it.company)}. The bot is applying now with your latest resume. Watch the <b>Applied</b> tab.`);
+      show(out, "ok", `No connections found at ${esc(it.company)}. The bot is applying now with your latest resume. Watch the <b>Applied</b> tab.`);
     }
     $("#addForm").reset();
     refreshSummary();
@@ -563,8 +638,8 @@ $("#connForm").onsubmit = async e => {
   const fd = new FormData(); fd.append("file", $("#connFile").files[0]);
   try {
     const r = await api("/api/connections/import", {method: "POST", body: fd});
-    show($("#connResult"), "ok", `Imported ${r.imported} connections.`);
-    refreshSummary();
+    show($("#connResult"), "ok", `Imported ${r.imported} connections.${r.no_employer ? ` ${r.no_employer} more have no employer on their LinkedIn profile, so they can't be matched to a company.` : ""}${movedNote(r.moved)}`);
+    refreshSummary(); searchEmployers();
   } catch (err) { show($("#connResult"), "bad", esc(err.message)); }
 };
 

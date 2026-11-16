@@ -20,8 +20,7 @@ def no_real_keychain(monkeypatch):
     monkeypatch.setattr(credstore, "_keyring", lambda: None)
 
 
-@pytest.fixture()
-def client(tmp_path, monkeypatch):
+def _new_client(tmp_path, monkeypatch):
     monkeypatch.setenv("RF_DATA_DIR", str(tmp_path))
     from app import db, inbox, main
     importlib.reload(db)
@@ -36,6 +35,22 @@ def client(tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
     c = TestClient(main.app, base_url="http://127.0.0.1:8000")
     c.apply_calls = calls
+    return c
+
+
+@pytest.fixture()
+def fresh_client(tmp_path, monkeypatch):
+    """The app as first opened: no LinkedIn connections imported yet."""
+    return _new_client(tmp_path, monkeypatch)
+
+
+@pytest.fixture()
+def client(tmp_path, monkeypatch):
+    """The app with the sample connections imported (contacts at Stripe, AWS and Google)."""
+    c = _new_client(tmp_path, monkeypatch)
+    with open(FIXTURES / "Connections.csv", "rb") as f:
+        assert c.post("/api/connections/import",
+                      files={"file": ("Connections.csv", f, "text/csv")}).status_code == 200
     return c
 
 

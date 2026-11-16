@@ -54,6 +54,9 @@ def todo() -> Optional[str]:
         return "Connect Gmail first."
     if not filters()["regions"]:
         return "Choose USA and/or Canada under “What to apply to” and save."
+    if not routing.connections_loaded():
+        return ("Import your LinkedIn connections on the Connections tab. Until then the app can't tell "
+                "where you have contacts, so it won't apply to anything.")
     if db.latest_resume() is None or not (db.get_setting("profile") or {}).get("email"):
         return ("Upload your resume and fill in your details on the Resume & profile tab, "
                 "so the bot has something to apply with.")

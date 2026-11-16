@@ -44,7 +44,8 @@ CREATE TABLE IF NOT EXISTS internships (
     resume_id INTEGER REFERENCES resumes(id),
     referral_link TEXT, notes TEXT, error TEXT,
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL, applied_at TEXT,
-    location TEXT, source TEXT NOT NULL DEFAULT 'manual'
+    location TEXT, source TEXT NOT NULL DEFAULT 'manual',
+    referral_decided INTEGER NOT NULL DEFAULT 0   -- 1 once you chose to apply without waiting
 );
 
 -- Newsletter emails read from Gmail, and every listing found in them.
@@ -71,6 +72,7 @@ CREATE TABLE IF NOT EXISTS newsletter_listings (
 MIGRATIONS = [
     ("internships", "location", "TEXT"),
     ("internships", "source", "TEXT NOT NULL DEFAULT 'manual'"),
+    ("internships", "referral_decided", "INTEGER NOT NULL DEFAULT 0"),
 ]
 
 DEFAULT_SETTINGS = {

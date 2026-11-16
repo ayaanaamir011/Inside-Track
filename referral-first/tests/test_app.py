@@ -30,15 +30,17 @@ def test_normalize_and_match():
 
 
 def test_import_skips_notes_and_blank_company(client):
-    assert import_fixture(client) == {"imported": 4}
+    assert import_fixture(client) == {"imported": 4, "no_employer": 1, "moved": 0}
     s = client.get("/api/summary").json()
-    assert s["connections"] == 4 and s["companies"] == 3
+    assert s["connections"] == 4 and s["companies"] == 4      # "Google" and "Google LLC" are listed separately
 
 
 def test_check_returns_count_not_names(client):
     import_fixture(client)
     r = client.get("/api/check", params={"company": "google"}).json()
-    assert r == {"company": "google", "has_contact": True, "contact_count": 2}
+    assert (r["has_contact"], r["contact_count"], r["connections_loaded"]) == (True, 2, True)
+    # where they are listed, by employer name only
+    assert sorted((h["company"], h["count"]) for h in r["listed_as"]) == [("Google", 1), ("Google LLC", 1)]
     assert "Turing" not in str(r)
     assert client.get("/api/check", params={"company": "Amazon"}).json()["contact_count"] == 1
     assert client.get("/api/check", params={"company": "Figma"}).json()["has_contact"] is False

@@ -240,8 +240,8 @@ def test_company_names_match_despite_spacing_and_aliases(client):
     assert matches(normalize("JPMorganChase"), normalize("JPMorgan Chase & Co."))
     assert matches(normalize("Pay Pal Inc"), normalize("PayPal"))
     assert not matches("meta", "metabase") and not matches("apple", "applebee s")
-    assert aliases("AXIS (AXIS Capital)") == ["axis", "axis capital"]
-    assert aliases("Brave (Remote)") == ["brave"]
+    assert aliases("AXIS (AXIS Capital)") == ("axis", "axis capital")
+    assert aliases("Brave (Remote)") == ("brave",)
     assert "equitable bank" in aliases("EQ Bank | Equitable Bank")
 
     client.post("/api/connections/import", files={"file": ("Connections.csv", CONNECTIONS, "text/csv")})

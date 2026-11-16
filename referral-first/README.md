@@ -35,6 +35,32 @@ RF_HEADLESS=0 bash run.sh
 ### Why the LinkedIn export instead of scraping?
 Scraping LinkedIn with a bot breaks LinkedIn's terms and gets accounts restricted or banned. The official export gives the same data (name, company, position) with no risk to your account.
 
+## How the contact check works
+
+Until you import your connections the app applies to nothing, because it can't tell where you have contacts.
+
+LinkedIn's file gives **one employer per connection**: the company on their *current* position, written the way they wrote it. So:
+
+- Someone who interned at a company last summer, or starts there next year, is listed under whatever they have now (often their university) and won't count.
+- Connections with no employer on their profile can't be matched. The import tells you how many.
+
+A posting's company counts as the same as a connection's employer when the names:
+
+- are equal, or one starts with the other ("Amazon" and "Amazon Web Services (AWS)")
+- differ only in spacing, punctuation or accents ("JPMorganChase" and "JPMorgan Chase & Co.", "Nestle" and "Nestlé")
+- contain one another as whole words ("Disney" and "The Walt Disney Company")
+- are a typo apart ("Nvdia" and "NVIDIA")
+- are a known pair ("Meta" and "Facebook", "Chase" and "J.P. Morgan", "EY" and "Ernst & Young", and about 30 more)
+
+Missing a contact means applying without asking for a referral, so the check leans toward finding one. Wherever it reports contacts it also shows the employer names they are listed under (never who), so a wrong match is easy to spot: click **Apply now** and move on.
+
+On the **Connections** tab you can:
+
+- **Search your employers** to see exactly how a company is written in your connections, and how many people are there.
+- **Add your own pairs**, one per line, such as `Acme Robotics = Acme Labs`, for names the app can't know are the same company.
+
+When a contact turns up later (after a new import, a new pair, or an update to the app), internships that haven't been submitted yet move to **Waiting for referral**. Ones you chose to apply to anyway stay where they are.
+
 ## The weekly newsletter (Gmail tab)
 
 Intern Insider sends its list every Monday from `hi@interninsider.me`. Each listing in it looks like
