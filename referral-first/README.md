@@ -28,7 +28,7 @@ RF_HEADLESS=0 bash run.sh
 
 1. **Resume & profile tab:** upload your resume and fill in your name, email, phone and links. A new upload becomes the "latest resume" for every future application.
 2. **Connections tab:** import `Connections.csv` from LinkedIn's data export:
-   Settings & Privacy → Data privacy → *Get a copy of your data* → tick **Connections** → *Request archive*.
+   Settings & Privacy → Data privacy → *Get a copy of your data* → choose **Download larger data archive** (the option that includes connections) → *Request archive*. LinkedIn emails a download link, which can take up to 24 hours and stays valid for 72 hours. Unzip it and upload the `Connections.csv` inside. If your page offers a **Connections** checkbox under "Want something in particular?", ticking only that also works and is quicker.
 3. **Gmail tab** (optional): connect Gmail and choose what to apply to. See below.
 4. Recommended for your first few tries: on the Resume & profile tab, set *When the bot applies* to **Fill only**. The bot then fills each form and stops, so you can see what it would do before it submits anything.
 

@@ -1,8 +1,9 @@
 """Parse LinkedIn's official data export (Connections.csv).
 
 Get it from LinkedIn: Settings & Privacy -> Data privacy -> Get a copy of your data
--> select "Connections" -> Request archive. LinkedIn emails a download link
-(usually within ~10 minutes). The CSV starts with a few "Notes:" lines before
+-> "Download larger data archive" (the option that includes connections; some
+accounts also get a "Connections" checkbox) -> Request archive. LinkedIn emails
+a download link, within 24 hours. The CSV starts with a few "Notes:" lines before
 the real header row, which this parser skips.
 
 The file has one employer per connection: the company on their current
