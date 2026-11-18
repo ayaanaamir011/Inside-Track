@@ -1,6 +1,10 @@
+import atexit
 import importlib
+import os
 import re
+import shutil
 import socketserver
+import tempfile
 import threading
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
@@ -8,6 +12,12 @@ from email.utils import format_datetime
 from pathlib import Path
 
 import pytest
+
+# Keep the whole test run away from the real data/ folder, even before a test
+# sets its own temporary one. This runs before any test imports the app.
+_TEST_DATA = tempfile.mkdtemp(prefix="referral-first-tests-")
+atexit.register(shutil.rmtree, _TEST_DATA, True)
+os.environ["RF_DATA_DIR"] = _TEST_DATA
 
 FIXTURES = Path(__file__).parent / "fixtures"
 SENDER = "hi@interninsider.me"
