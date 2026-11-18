@@ -87,7 +87,7 @@ class LocalOnly:
         await self.inner(scope, receive, send)
 
 
-app = FastAPI(title="Referral First", lifespan=lifespan)
+app = FastAPI(title="Inside Track", lifespan=lifespan)
 app.add_middleware(LocalOnly)
 
 

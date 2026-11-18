@@ -15,7 +15,7 @@ import pytest
 
 # Keep the whole test run away from the real data/ folder, even before a test
 # sets its own temporary one. This runs before any test imports the app.
-_TEST_DATA = tempfile.mkdtemp(prefix="referral-first-tests-")
+_TEST_DATA = tempfile.mkdtemp(prefix="inside-track-tests-")
 atexit.register(shutil.rmtree, _TEST_DATA, True)
 os.environ["RF_DATA_DIR"] = _TEST_DATA
 

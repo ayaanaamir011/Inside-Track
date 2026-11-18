@@ -1,4 +1,4 @@
-# Referral First
+# Inside Track
 
 Check for a referral before you apply. If you have no contact at the company, a bot applies for you.
 
@@ -10,7 +10,7 @@ Check for a referral before you apply. If you have no contact at the company, a 
 
 ## Run it (macOS or Linux)
 
-You need Python 3.9 or newer. In a terminal, from this folder:
+You need Python 3.9 or newer. Get the code (the green **Code** button → **Download ZIP**, or `git clone https://github.com/ayaanaamir011/Inside-Track.git`), then in a terminal, from that folder:
 
 ```bash
 bash run.sh
@@ -69,7 +69,7 @@ Intern Insider sends its list every Monday from `hi@interninsider.me`. Each list
 **Connecting.** The app signs in to Gmail with an *app password* (a separate 16-letter password Google makes for one app):
 
 1. Turn on 2-Step Verification if it is off: https://myaccount.google.com/signinoptions/twosv
-2. Create an app password named "Referral First": https://myaccount.google.com/apppasswords
+2. Create an app password named "Inside Track": https://myaccount.google.com/apppasswords
 3. Paste it into the Gmail tab with your Gmail address.
 
 An app password can read your whole mailbox, so treat it like a password. The app keeps it in your computer's keychain (macOS Keychain, Windows Credential Locker) when there is one, otherwise in its local data folder. It opens the mailbox read-only, looks only at emails from the newsletter's address, and never marks, moves, deletes or sends anything. You can revoke the app password on the same Google page at any time.

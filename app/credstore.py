@@ -9,6 +9,8 @@ from typing import Optional
 
 from . import db
 
+# The app was first called "Referral First". The keychain entry keeps that name so a
+# password saved before the rename is still found.
 SERVICE = "referral-first-gmail"
 _DB_KEY = "gmail_app_password"
 

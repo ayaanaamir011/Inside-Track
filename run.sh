@@ -1,5 +1,5 @@
 #!/bin/bash
-# Set up (first time only) and start Referral First. Works on macOS and Linux.
+# Set up (first time only) and start Inside Track. Works on macOS and Linux.
 #   bash run.sh
 set -e
 cd "$(dirname "$0")"
@@ -32,7 +32,7 @@ fi
 
 PORT="${PORT:-8000}"
 echo
-echo "Referral First is starting at http://127.0.0.1:$PORT"
+echo "Inside Track is starting at http://127.0.0.1:$PORT"
 echo "Leave this window open while you use it. Press Ctrl+C to stop."
 echo
 ( sleep 3; command -v open >/dev/null 2>&1 && open "http://127.0.0.1:$PORT" ) >/dev/null 2>&1 &
