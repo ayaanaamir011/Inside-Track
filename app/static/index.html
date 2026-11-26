@@ -333,6 +333,10 @@ function contactLine(it) {
   return `<div class="sub">You have ${n} contact${n === 1 ? "" : "s"} there (${nameList(it.listed_as)}).${it.status === "applied" ? " It can still be worth telling them you applied." : ""}</div>`;
 }
 
+function hostOf(u) {
+  try { return new URL(u).hostname.replace(/^www\./, ""); } catch (e) { return u; }
+}
+
 function itemHTML(it) {
   const link = it.referral_link || it.url;
   const title = it.title ? ` · ${esc(it.title)}` : "";
@@ -345,6 +349,9 @@ function itemHTML(it) {
       <textarea rows="2" placeholder="Notes, e.g. who you messaged and when" data-notes="${it.id}" style="margin-top:8px">${esc(it.notes)}</textarea>`;
     actions = `<button class="btn small" data-act="archive" data-id="${it.id}">Archive</button>`;
   } else if (it.status === "needs_attention") {
+    extra = `<div class="refform">
+        <input placeholder="Paste a different application link (optional)" id="link-${it.id}">
+      </div>`;
     actions = `<button class="btn small" data-act="retry" data-id="${it.id}">Retry bot</button>
       <button class="btn small" data-act="applied" data-id="${it.id}">I applied manually</button>
       <button class="btn small" data-act="archive" data-id="${it.id}">Archive</button>`;
@@ -363,6 +370,7 @@ function itemHTML(it) {
       <div class="what">
         <div><span class="company">${esc(it.company)}</span>${title}${it.location ? ` · ${esc(it.location)}` : ""} ${pill} ${it.source === "newsletter" ? `<span class="tag">Intern Insider</span>` : ""}</div>
         <div class="sub">${link ? `<a href="${esc(link)}" target="_blank" rel="noopener">${esc(link)}</a>` : "No link"} · added ${fmt(it.created_at)}</div>
+        ${it.source_url && it.source_url !== link ? `<div class="sub">Listed at <a href="${esc(it.source_url)}" target="_blank" rel="noopener">${esc(hostOf(it.source_url))}</a></div>` : ""}
         ${contactLine(it)}
         ${it.error ? `<div class="err">${esc(it.error)}</div>` : ""}
         ${extra}${shot}
@@ -585,7 +593,8 @@ document.addEventListener("click", async e => {
     if (act === "apply") {
       await api(`/api/internships/${id}/apply`, json("POST", {referral_link: $(`#ref-${id}`).value || null}));
     } else if (act === "retry") {
-      await api(`/api/internships/${id}/apply`, json("POST", {}));
+      const other = $(`#link-${id}`);
+      await api(`/api/internships/${id}/apply`, json("POST", {url: (other && other.value.trim()) || null}));
     } else if (act === "delete") {
       if (!confirm("Delete this internship permanently?")) { b.disabled = false; return; }
       await api(`/api/internships/${id}`, {method: "DELETE"});

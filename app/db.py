@@ -45,7 +45,8 @@ CREATE TABLE IF NOT EXISTS internships (
     referral_link TEXT, notes TEXT, error TEXT,
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL, applied_at TEXT,
     location TEXT, source TEXT NOT NULL DEFAULT 'manual',
-    referral_decided INTEGER NOT NULL DEFAULT 0   -- 1 once you chose to apply without waiting
+    referral_decided INTEGER NOT NULL DEFAULT 0,  -- 1 once you chose to apply without waiting
+    source_url TEXT        -- where it was listed, when the bot swapped in the employer's own link
 );
 
 -- Newsletter emails read from Gmail, and every listing found in them.
@@ -73,6 +74,7 @@ MIGRATIONS = [
     ("internships", "location", "TEXT"),
     ("internships", "source", "TEXT NOT NULL DEFAULT 'manual'"),
     ("internships", "referral_decided", "INTEGER NOT NULL DEFAULT 0"),
+    ("internships", "source_url", "TEXT"),
 ]
 
 DEFAULT_SETTINGS = {

@@ -46,7 +46,8 @@ def find_existing(company: str, title: Optional[str], url: Optional[str],
     with db.connect() as c:
         if url:
             row = c.execute(
-                "SELECT * FROM internships WHERE url=? OR referral_link=? LIMIT 1", (url, url)
+                "SELECT * FROM internships WHERE url=? OR referral_link=? OR source_url=? LIMIT 1",
+                (url, url, url),
             ).fetchone()
             if row:
                 return row

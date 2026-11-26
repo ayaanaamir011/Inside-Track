@@ -191,3 +191,120 @@ def test_bot_never_touches_a_sign_in_page(tmp_path, monkeypatch, fixture_server)
     it = db.get_internship(iid)
     assert it["status"] == db.NEEDS_ATTENTION                      # not "applied", though this form would accept anything
     assert "sign in or create an account" in it["error"]
+
+
+# ---------- Handshake listings: apply on the company's own board ----------
+
+HANDSHAKE = "https://app.joinhandshake.com/jobs/11463252"
+
+
+def _add_listing(db, url, title="Software Engineering Intern", company="Figma", location="San Francisco, CA"):
+    with db.connect() as c:
+        return c.execute(
+            "INSERT INTO internships(company,company_norm,title,url,location,status,created_at,updated_at) "
+            "VALUES(?,?,?,?,?,?,?,?)",
+            (company, company.lower(), title, url, location, db.APPLYING, db.now(), db.now()),
+        ).lastrowid
+
+
+def _board_lookup(monkeypatch, applier, result):
+    asked = []
+
+    def fake(company, title, location=None):
+        asked.append((company, title, location))
+        return result
+
+    monkeypatch.setattr(applier.jobboards, "find_posting", fake)
+    return asked
+
+
+@pytest.mark.skipif(not _have_browser(), reason="playwright not installed")
+def test_handshake_listing_is_applied_to_on_the_employers_board(tmp_path, monkeypatch, fixture_server):
+    applier, db = _setup_for_bot(tmp_path, monkeypatch, "dry_run")
+    employer = fixture_server + "/greenhouse_like.html"
+    asked = _board_lookup(monkeypatch, applier, {"url": employer, "title": "Software Engineering Intern",
+                                                 "location": "San Francisco, California", "board": "Greenhouse"})
+    iid = _add_listing(db, HANDSHAKE)
+    asyncio.run(applier.run_application(iid))
+    it = db.get_internship(iid)
+    assert asked == [("Figma", "Software Engineering Intern", "San Francisco, CA")]
+    assert it["url"] == employer and it["source_url"] == HANDSHAKE
+    assert it["status"] == db.NEEDS_ATTENTION and "Dry run" in it["error"]      # it filled the employer's form
+
+
+def test_handshake_listing_not_on_a_board_is_handed_back_unopened(tmp_path, monkeypatch):
+    applier, db = _setup_for_bot(tmp_path, monkeypatch, "auto")
+    monkeypatch.setenv("CHROMIUM_PATH", "/nonexistent/browser")      # proves no browser is even started
+    _board_lookup(monkeypatch, applier, None)
+    iid = _add_listing(db, HANDSHAKE)
+    asyncio.run(applier.run_application(iid))
+    it = db.get_internship(iid)
+    assert it["status"] == db.NEEDS_ATTENTION and it["url"] == HANDSHAKE
+    for words in ("Handshake", "isn't on the company's Greenhouse, Lever or Ashby", "Apply externally"):
+        assert words in it["error"]
+    assert applier.listing_site("https://app.joinhandshake.com/stu/jobs/1") == "Handshake"
+    assert applier.listing_site("https://joinhandshake.com.example/jobs/1") is None
+
+
+def test_listing_without_a_link_is_looked_up(tmp_path, monkeypatch):
+    applier, db = _setup_for_bot(tmp_path, monkeypatch, "auto")
+    monkeypatch.setenv("CHROMIUM_PATH", "/nonexistent/browser")
+    asked = _board_lookup(monkeypatch, applier, None)
+    iid = _add_listing(db, None)
+    asyncio.run(applier.run_application(iid))
+    it = db.get_internship(iid)
+    assert len(asked) == 1
+    assert it["error"].startswith("No application URL. It isn't on the company's")
+    # nothing to look up without a title
+    untitled = _add_listing(db, None, title=None)
+    asyncio.run(applier.run_application(untitled))
+    assert len(asked) == 1 and db.get_internship(untitled)["error"].startswith("No application URL. Paste")
+
+
+def test_a_referral_link_is_used_as_is(tmp_path, monkeypatch):
+    applier, db = _setup_for_bot(tmp_path, monkeypatch, "auto")
+    monkeypatch.setenv("CHROMIUM_PATH", "/nonexistent/browser")
+    asked = _board_lookup(monkeypatch, applier, None)
+    iid = _add_listing(db, HANDSHAKE)
+    db.update_internship(iid, referral_link="https://figma.wd5.myworkdayjobs.com/ref/123")
+    asyncio.run(applier.run_application(iid))
+    assert asked == [] and "Workday" in db.get_internship(iid)["error"]
+
+
+def test_retry_with_a_different_link(client):
+    it = client.post("/api/internships", json={"company": "Figma", "title": "Software Engineering Intern",
+                                               "url": HANDSHAKE}).json()
+    client.post(f"/api/internships/{it['id']}/status", json={"status": "needs_attention"})
+    bad = client.post(f"/api/internships/{it['id']}/apply", json={"url": "ftp://figma.example/1"})
+    assert bad.status_code == 400
+    r = client.post(f"/api/internships/{it['id']}/apply",
+                    json={"url": "https://boards.greenhouse.io/figma/jobs/123"}).json()
+    assert r["status"] == "applying" and r["url"] == "https://boards.greenhouse.io/figma/jobs/123"
+    assert r["source_url"] == HANDSHAKE
+    # the Handshake link still counts as this posting
+    assert client.post("/api/internships", json={"company": "Figma", "url": HANDSHAKE}).status_code == 409
+    from app import routing
+    assert routing.find_existing("Figma", None, HANDSHAKE)["id"] == it["id"]
+
+
+@pytest.mark.skipif(not _have_browser(), reason="playwright not installed")
+def test_resume_is_sent_under_its_own_name(tmp_path, monkeypatch, fixture_server):
+    applier, db = _setup_for_bot(tmp_path, monkeypatch, "dry_run")
+    stored = tmp_path / "2026-11-19T01-32-38+00-00_Ayaan_Aamir_Resume.pdf"
+    stored.write_bytes(b"%PDF-1.4 test")
+    resume = {"filename": "Ayaan_Aamir_Resume.pdf", "path": str(stored)}
+    assert applier._resume_file(resume)["mimeType"] == "application/pdf"
+
+    async def attach():
+        from playwright.async_api import async_playwright
+        launch = {"executable_path": os.environ["CHROMIUM_PATH"]} if os.environ.get("CHROMIUM_PATH") else {}
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(**launch)
+            page = await browser.new_page()
+            frame = await applier._open_form(page, fixture_server + "/greenhouse_like.html")
+            assert await applier._attach_resume(frame, applier._resume_file(resume))
+            name = await frame.evaluate("document.getElementById('resume').files[0].name")
+            await browser.close()
+            return name
+
+    assert asyncio.run(attach()) == "Ayaan_Aamir_Resume.pdf"
