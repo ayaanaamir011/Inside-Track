@@ -9,14 +9,19 @@ dropdowns, essays...), it does NOT submit and moves the internship to
 Works best on Greenhouse, Lever and Ashby postings; other sites use the same
 label-matching heuristics and may or may not work. Systems that need an account
 (Workday and the like) are handed straight to you.
+
+A listing that links to a job site you must be signed in to (Handshake), or has
+no link at all, is first looked up on the company's own Greenhouse, Lever or
+Ashby board; the bot applies there, never on the listing site.
 """
 import asyncio
 import os
 import re
 import traceback
+from pathlib import Path
 from urllib.parse import urlsplit
 
-from . import db
+from . import db, jobboards
 
 # Application systems where you must sign up before applying. The bot doesn't try these.
 ACCOUNT_SITES = {
@@ -26,6 +31,18 @@ ACCOUNT_SITES = {
     "icims.com": "iCIMS",
     "taleo.net": "Taleo",
     "successfactors.com": "SuccessFactors",
+}
+
+# Job sites that list postings but need you signed in. The bot never opens these; it
+# looks for the same job on the company's own board instead.
+LISTING_SITES = {
+    "joinhandshake.com": "Handshake",
+}
+
+RESUME_TYPES = {
+    ".pdf": "application/pdf",
+    ".doc": "application/msword",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 }
 
 CONFIRM_RE = re.compile(
@@ -167,7 +184,15 @@ async def _fill_fields(frame, values) -> list[str]:
     return filled
 
 
-async def _attach_resume(frame, resume_path) -> bool:
+def _resume_file(resume) -> dict:
+    """The resume under the name you uploaded it with, not the app's dated copy on disk."""
+    path = Path(resume["path"])
+    name = Path(resume["filename"] or path.name).name
+    return {"name": name, "mimeType": RESUME_TYPES.get(path.suffix.lower(), "application/octet-stream"),
+            "buffer": path.read_bytes()}
+
+
+async def _attach_resume(frame, resume_file) -> bool:
     files = await frame.query_selector_all("input[type=file]")
     if not files:
         return False
@@ -182,7 +207,7 @@ async def _attach_resume(frame, resume_path) -> bool:
         target = target or el
     if target is None:
         return False
-    await target.set_input_files(resume_path)
+    await target.set_input_files(resume_file)
     await frame.page.wait_for_timeout(1500)  # let the ATS parse/upload it
     return True
 
@@ -206,13 +231,22 @@ async def run_application(internship_id: int):
         await _run(internship_id)
 
 
-def account_site(url: str):
-    """The name of the application system if it is one that needs an account, else None."""
-    host = (urlsplit(url).hostname or "").lower()
-    for domain, name in ACCOUNT_SITES.items():
+def _site(url: str, sites: dict):
+    host = (urlsplit(url or "").hostname or "").lower()
+    for domain, name in sites.items():
         if host == domain or host.endswith("." + domain):
             return name
     return None
+
+
+def account_site(url: str):
+    """The name of the application system if it is one that needs an account, else None."""
+    return _site(url, ACCOUNT_SITES)
+
+
+def listing_site(url: str):
+    """The name of the job site if it is one the bot must not open (you sign in there), else None."""
+    return _site(url, LISTING_SITES)
 
 
 async def _run(internship_id: int):
@@ -228,8 +262,24 @@ async def _run(internship_id: int):
     def attention(msg):
         db.update_internship(internship_id, status=db.NEEDS_ATTENTION, error=msg)
 
+    # A Handshake link (or none): apply on the company's own board if the job is there.
+    searched = False
+    if not it["referral_link"] and (not url or listing_site(url)) and it["title"]:
+        searched = True
+        found = await asyncio.to_thread(jobboards.find_posting, it["company"], it["title"], it["location"])
+        if found:
+            db.update_internship(internship_id, url=found["url"], source_url=it["source_url"] or it["url"])
+            url = found["url"]
+    not_on_board = " It isn't on the company's Greenhouse, Lever or Ashby job board either." if searched else ""
+
     if not url:
-        return attention("No application URL. Add the posting link and retry.")
+        return attention("No application URL.%s Paste the posting link below and retry." % not_on_board)
+    lister = listing_site(url)
+    if lister:
+        return attention(
+            "This job is listed on %s, which needs you signed in, so the bot doesn't open it.%s Open it, click "
+            "Apply externally, paste the employer's link below and click Retry bot. Or apply there yourself and "
+            "click “I applied manually”." % (lister, not_on_board))
     if resume is None:
         return attention("No resume uploaded yet. Upload one in the Resume & Profile tab, then retry.")
     if not profile.get("email"):
@@ -254,14 +304,14 @@ async def _run(internship_id: int):
             try:
                 frame = await _open_form(page, url)
                 # Never type into a sign-in or sign-up page (a tracking link can land on one).
-                site = account_site(page.url)
+                site = account_site(page.url) or listing_site(page.url)
                 if site or await frame.locator("input[type=password]:visible").count():
                     await page.screenshot(path=str(shot), full_page=True)
                     return attention("This posting %s, so the bot can't do it. %s" % (
                         "is on %s, which makes you create an account before applying" % site if site
                         else "asks you to sign in or create an account before applying", by_hand))
                 filled = await _fill_fields(frame, _profile_values(profile))
-                attached = await _attach_resume(frame, resume["path"])
+                attached = await _attach_resume(frame, _resume_file(resume))
                 missing = await frame.evaluate(MISSING_REQUIRED_JS)
                 await page.screenshot(path=str(shot), full_page=True)
 

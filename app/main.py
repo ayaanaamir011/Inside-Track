@@ -111,6 +111,7 @@ class NewInternship(BaseModel):
 
 class ApplyRequest(BaseModel):
     referral_link: Optional[str] = None
+    url: Optional[str] = None   # a different application link, e.g. the employer's page for a Handshake listing
 
 
 class StatusChange(BaseModel):
@@ -143,7 +144,8 @@ def add_internship(body: NewInternship, background: BackgroundTasks):
     if url:
         with db.connect() as c:
             dup = c.execute(
-                "SELECT id, status FROM internships WHERE url=? AND status != ?", (url, db.ARCHIVED)
+                "SELECT id, status FROM internships WHERE (url=? OR source_url=?) AND status != ?",
+                (url, url, db.ARCHIVED)
             ).fetchone()
         if dup:
             raise HTTPException(409, f"You already added this posting (status: {dup['status'].replace('_', ' ')}).")
@@ -203,8 +205,13 @@ def apply_now(iid: int, background: BackgroundTasks, body: Optional[ApplyRequest
     link = (body.referral_link or "").strip() if body else ""
     if link and not re.match(r"https?://", link):
         raise HTTPException(400, "Referral link must start with http:// or https://")
+    new_url = (body.url or "").strip() if body else ""
+    if new_url and not re.match(r"https?://", new_url):
+        raise HTTPException(400, "The application link must start with http:// or https://")
     if link:
         db.update_internship(iid, referral_link=link)
+    if new_url and new_url != it["url"]:
+        db.update_internship(iid, url=new_url, source_url=it["source_url"] or it["url"])
     # referral_decided: you chose to go ahead, so a later contact check won't pull it back.
     db.update_internship(iid, status=db.APPLYING, error=None, referral_decided=1)
     background.add_task(applier.run_application, iid)

@@ -91,11 +91,13 @@ The app has to be running to check. If your computer was off on Monday, the issu
 
 - Opens the posting. Newsletter links pass through a click-tracking redirect first. For Lever postings it goes to the `/apply` page. For career pages that embed a Greenhouse iframe, it finds the form inside the iframe.
 - Fills name, email, phone, LinkedIn, GitHub, website, school and location by matching each field's label.
-- Attaches your latest resume.
+- Attaches your latest resume, under the file name you uploaded it with.
 - **Checks for required fields that are still empty** (custom questions, essays, work-authorization and demographic dropdowns). If any are empty it does **not** submit. The internship moves to **Needs attention** with a list of the unanswered questions and a screenshot.
 - Otherwise it clicks submit and waits for a "thank you / application received" page before marking the internship **Applied**.
 
 It applies to one posting at a time, so a Monday batch takes a while to work through. If you close the app with applications still queued, they resume the next time you start it.
+
+**Links to Handshake, or no link at all.** Handshake makes you sign in, so the bot never opens it. Instead it looks for the same job on the company's own Greenhouse, Lever or Ashby job board (their job lists are public) and applies there; the card then shows the employer's link, with "Listed at" pointing back to where you found it. It only uses a posting when the title clearly matches (same season, year and degree level, nothing else on the board nearly as close) and it isn't in another country. If it can't find one, the internship goes to **Needs attention**: open it in Handshake, click *Apply externally*, paste that link into the box on the card and click **Retry bot**. That box works for any internship where you want the bot to use a different link.
 
 Works best on Greenhouse, Lever and Ashby. Postings on Workday, Oracle Recruiting, iCIMS, Taleo or SuccessFactors need an account, so the bot doesn't try them: they go straight to **Needs attention** with a note. Anything with a CAPTCHA ends up there too. That's on purpose: the bot never guesses answers on your behalf.
 
