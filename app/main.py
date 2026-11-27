@@ -13,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import applier, companies, db, inbox, routing
-from .linkedin_import import parse_connections_csv
+from .linkedin_import import parse_applications_csv, parse_connections_csv
 
 STATIC = Path(__file__).parent / "static"
 GMAIL_CHECK_MINUTES = max(5, int(os.environ.get("RF_GMAIL_CHECK_MINUTES", "30")))
@@ -30,10 +30,16 @@ def _spawn(coro):
     task.add_done_callback(_tasks.discard)
 
 
-async def _gmail_loop():
-    """While the app is running, look for a new newsletter every half hour."""
+async def _background_loop():
+    """While the app is running, every half hour: apply to internships that have waited
+    long enough for a referral, and look for a new newsletter."""
     await asyncio.sleep(10)
     while True:
+        try:
+            for iid in routing.apply_after_wait():
+                _spawn(applier.run_application(iid))
+        except Exception:
+            traceback.print_exc()
         try:
             if inbox.ready():
                 summary = await inbox.check()
@@ -54,7 +60,7 @@ async def lifespan(_app):
         routing.recount()
     for iid in routing.interrupted_ids():
         _spawn(applier.run_application(iid))
-    _spawn(_gmail_loop())
+    _spawn(_background_loop())
     yield
     for task in list(_tasks):
         task.cancel()
@@ -150,10 +156,15 @@ def add_internship(body: NewInternship, background: BackgroundTasks):
         if dup:
             raise HTTPException(409, f"You already added this posting (status: {dup['status'].replace('_', ' ')}).")
 
+    title = (body.title or "").strip() or None
+    done = routing.already_applied(company, title, url)
+    if done:
+        raise HTTPException(409, "You already applied to this%s. It's under Applied." % routing.applied_note(done))
+
     if not routing.connections_loaded():
         raise HTTPException(400, NO_CONNECTIONS)
 
-    row = routing.create(company, (body.title or "").strip() or None, url)
+    row = routing.create(company, title, url)
     if row["status"] == db.APPLYING:
         background.add_task(applier.run_application, row["id"])
     d = _row(row)
@@ -169,10 +180,11 @@ def list_internships(status: Optional[str] = None):
         else:
             rows = c.execute("SELECT * FROM internships ORDER BY updated_at DESC").fetchall()
     out = [_row(r) for r in rows]
-    known = routing.employers()
-    for d in out:
+    known, days = routing.employers(), routing.wait_days()
+    for r, d in zip(rows, out):
         if d["status"] != db.ARCHIVED:     # which employer names your contacts there are listed under
             d["listed_as"] = routing.contacts_at(d["company"], known)
+        d["applies_on"] = routing.applies_on(r, days)
     return out
 
 
@@ -224,6 +236,8 @@ def set_status(iid: int, body: StatusChange):
     if body.status not in db.STATUSES or body.status == db.APPLYING:
         raise HTTPException(400, "Invalid status")
     extra = {"applied_at": db.now()} if body.status == db.APPLIED else {}
+    if body.status == db.WAITING:
+        extra["waiting_since"] = db.now()
     db.update_internship(iid, status=body.status, **extra)
     return _row(db.get_internship(iid))
 
@@ -270,6 +284,18 @@ async def import_connections(file: UploadFile = File(...), replace: bool = Form(
                                     "position", "connected_on")} for r in rows],
         )
     return {"imported": len(rows), "no_employer": no_employer, "moved": routing.recount()}
+
+
+@app.post("/api/linkedin/applications/import")
+async def import_applications(file: UploadFile = File(...)):
+    """Jobs you applied to on LinkedIn (Job Applications CSV): added to Applied, never applied to again."""
+    try:
+        rows = parse_applications_csv(await file.read())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    added, had = routing.import_applications(rows)
+    return {"imported": added, "already_had": had, "archived": routing.skip_already_applied(),
+            "undated": sum(1 for r in rows if not r["applied_at"])}
 
 
 @app.get("/api/connections/companies")
@@ -330,17 +356,25 @@ def list_resumes():
 class Settings(BaseModel):
     profile: dict
     apply_mode: str = "auto"
+    referral_wait_days: Optional[int] = None
 
 
 @app.get("/api/settings")
 def get_settings():
-    return {"profile": db.get_setting("profile"), "apply_mode": db.get_setting("apply_mode")}
+    return {"profile": db.get_setting("profile"), "apply_mode": db.get_setting("apply_mode"),
+            "referral_wait_days": routing.wait_days()}
 
 
 @app.put("/api/settings")
-def put_settings(body: Settings):
+def put_settings(body: Settings, background: BackgroundTasks):
     if body.apply_mode not in ("auto", "dry_run"):
         raise HTTPException(400, "apply_mode must be auto or dry_run")
+    if body.referral_wait_days is not None:
+        if not 0 <= body.referral_wait_days <= 60:
+            raise HTTPException(400, "Days to wait for a referral must be between 0 and 60.")
+        db.set_setting("referral_wait_days", body.referral_wait_days)
+        for iid in routing.apply_after_wait():    # a shorter wait can make some due now
+            background.add_task(applier.run_application, iid)
     allowed = db.DEFAULT_SETTINGS["profile"].keys()
     db.set_setting("profile", {k: str(body.profile.get(k, "")).strip() for k in allowed})
     db.set_setting("apply_mode", body.apply_mode)

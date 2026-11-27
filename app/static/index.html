@@ -213,11 +213,22 @@
         <li>Unzip the download and upload the file named <b>Connections.csv</b> here.</li>
       </ol>
       <p class="hint">Re-import every few weeks to pick up new connections. Each import replaces the previous list.</p>
+      <p class="hint"><b>Keep the file you have.</b> LinkedIn says that from December 2026 its export no longer includes your connections' current companies, which is what the app matches on. If you upload a file like that, the app tells you and keeps the list you imported before.</p>
       <form id="connForm" class="row">
         <input type="file" id="connFile" accept=".csv" required style="flex:1 1 240px">
         <button class="btn primary" type="submit">Import</button>
       </form>
       <div class="result" id="connResult"></div>
+    </div>
+
+    <div class="card">
+      <h2>Jobs you already applied to on LinkedIn</h2>
+      <p class="hint">So the bot never applies to the same job twice. The same LinkedIn download has a <b>Jobs</b> folder; upload the <b>Job Applications</b> file from it (if there are several, upload each). They are added under <b>Applied</b>. Any internship here that matches one you applied to in the last 6 months (same company, same job title) is skipped, as is any you apply to through this app. Only the company, job title, link and date are read from the file.</p>
+      <form id="appsForm" class="row">
+        <input type="file" id="appsFile" accept=".csv" required style="flex:1 1 240px">
+        <button class="btn primary" type="submit">Import</button>
+      </form>
+      <div class="result" id="appsResult"></div>
     </div>
 
     <div class="card">
@@ -272,6 +283,9 @@
           <option value="auto">Fill and submit automatically</option>
           <option value="dry_run">Fill only, don't submit (test mode)</option>
         </select>
+        <label for="waitDays">Days to wait for a referral before the bot applies without one</label>
+        <input id="waitDays" type="number" min="0" max="60" step="1" style="max-width:120px">
+        <div class="hint">0 means it waits until you click Apply now.</div>
         <div class="row"><button class="btn primary" type="submit">Save</button></div>
       </form>
       <div class="result" id="profileResult"></div>
@@ -346,6 +360,7 @@ function itemHTML(it) {
         <input placeholder="Paste referral link (optional)" id="ref-${it.id}">
         <button class="btn primary small" data-act="apply" data-id="${it.id}">Apply now</button>
       </div>
+      ${it.applies_on ? `<div class="hint" style="margin-top:6px">No referral by ${fmt(it.applies_on)}? The bot applies without one then.</div>` : ""}
       <textarea rows="2" placeholder="Notes, e.g. who you messaged and when" data-notes="${it.id}" style="margin-top:8px">${esc(it.notes)}</textarea>`;
     actions = `<button class="btn small" data-act="archive" data-id="${it.id}">Archive</button>`;
   } else if (it.status === "needs_attention") {
@@ -368,7 +383,7 @@ function itemHTML(it) {
     ? `<details><summary class="hint" style="cursor:pointer">What the bot saw</summary><img class="shot" loading="lazy" src="/api/internships/${it.id}/screenshot?t=${encodeURIComponent(it.updated_at)}" alt="Screenshot of the application page"></details>` : "";
   return `<div class="card"><div class="item">
       <div class="what">
-        <div><span class="company">${esc(it.company)}</span>${title}${it.location ? ` · ${esc(it.location)}` : ""} ${pill} ${it.source === "newsletter" ? `<span class="tag">Intern Insider</span>` : ""}</div>
+        <div><span class="company">${esc(it.company)}</span>${title}${it.location ? ` · ${esc(it.location)}` : ""} ${pill} ${it.source === "newsletter" ? `<span class="tag">Intern Insider</span>` : it.source === "linkedin" ? `<span class="tag">LinkedIn</span>` : ""}</div>
         <div class="sub">${link ? `<a href="${esc(link)}" target="_blank" rel="noopener">${esc(link)}</a>` : "No link"} · added ${fmt(it.created_at)}</div>
         ${it.source_url && it.source_url !== link ? `<div class="sub">Listed at <a href="${esc(it.source_url)}" target="_blank" rel="noopener">${esc(hostOf(it.source_url))}</a></div>` : ""}
         ${contactLine(it)}
@@ -653,6 +668,20 @@ $("#connForm").onsubmit = async e => {
   } catch (err) { show($("#connResult"), "bad", esc(err.message)); }
 };
 
+$("#appsForm").onsubmit = async e => {
+  e.preventDefault();
+  const fd = new FormData(); fd.append("file", $("#appsFile").files[0]);
+  try {
+    const r = await api("/api/linkedin/applications/import", {method: "POST", body: fd});
+    const plural = n => n === 1 ? "" : "s";
+    show($("#appsResult"), "ok", `Added ${r.imported} application${plural(r.imported)} to Applied.`
+      + (r.already_had ? ` ${r.already_had} were already there.` : "")
+      + (r.archived ? ` ${r.archived} internship${plural(r.archived)} you had already applied to ${r.archived === 1 ? "was" : "were"} moved to Archived, so the bot won't apply again.` : "")
+      + (r.undated ? ` ${r.undated} had no date the app could read; they always count as recent.` : ""));
+    $("#appsForm").reset(); refreshSummary();
+  } catch (err) { show($("#appsResult"), "bad", esc(err.message)); }
+};
+
 $("#resumeForm").onsubmit = async e => {
   e.preventDefault();
   const fd = new FormData(); fd.append("file", $("#resumeFile").files[0]);
@@ -669,6 +698,7 @@ async function loadProfile() {
     const el = $(`#profileForm [name="${k}"]`); if (el) el.value = v;
   }
   $("#applyMode").value = s.apply_mode;
+  $("#waitDays").value = s.referral_wait_days;
   const rs = await api("/api/resumes");
   $("#resumeCurrent").innerHTML = rs.length
     ? `Current: <b>${esc(rs[0].filename)}</b> (uploaded ${fmt(rs[0].uploaded_at)})${rs.length > 1 ? ` · ${rs.length - 1} older version${rs.length > 2 ? "s" : ""}` : ""}`
@@ -679,7 +709,9 @@ $("#profileForm").onsubmit = async e => {
   e.preventDefault();
   const profile = Object.fromEntries(new FormData($("#profileForm")));
   try {
-    await api("/api/settings", json("PUT", {profile, apply_mode: $("#applyMode").value}));
+    const wait = parseInt($("#waitDays").value, 10);
+    await api("/api/settings", json("PUT", {profile, apply_mode: $("#applyMode").value,
+                                            referral_wait_days: Number.isNaN(wait) ? null : wait}));
     show($("#profileResult"), "ok", "Saved.");
   } catch (err) { show($("#profileResult"), "bad", esc(err.message)); }
 };
