@@ -163,6 +163,12 @@ def similarity(a: Title, b: Title) -> float:
     return len(a.words & b.words) / len(a.words | b.words)
 
 
+def same_title(a: str, b: str) -> bool:
+    """Two job titles that name the same job (see best_match for the rules)."""
+    ta, tb = parse_title(a), parse_title(b)
+    return _compatible(ta, tb) and similarity(ta, tb) >= THRESHOLD
+
+
 def _city(location: Optional[str]) -> str:
     first = (location or "").split(",")[0]
     return " ".join(re.findall(r"[a-z0-9]+", companies.fold(first)))

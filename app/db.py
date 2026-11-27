@@ -46,7 +46,8 @@ CREATE TABLE IF NOT EXISTS internships (
     created_at TEXT NOT NULL, updated_at TEXT NOT NULL, applied_at TEXT,
     location TEXT, source TEXT NOT NULL DEFAULT 'manual',
     referral_decided INTEGER NOT NULL DEFAULT 0,  -- 1 once you chose to apply without waiting
-    source_url TEXT        -- where it was listed, when the bot swapped in the employer's own link
+    source_url TEXT,       -- where it was listed, when the bot swapped in the employer's own link
+    waiting_since TEXT     -- when it last went to "Waiting for referral"
 );
 
 -- Newsletter emails read from Gmail, and every listing found in them.
@@ -75,6 +76,7 @@ MIGRATIONS = [
     ("internships", "source", "TEXT NOT NULL DEFAULT 'manual'"),
     ("internships", "referral_decided", "INTEGER NOT NULL DEFAULT 0"),
     ("internships", "source_url", "TEXT"),
+    ("internships", "waiting_since", "TEXT"),
 ]
 
 DEFAULT_SETTINGS = {
@@ -85,6 +87,8 @@ DEFAULT_SETTINGS = {
     },
     # "auto": fill and submit. "dry_run": fill only, never submit (for testing).
     "apply_mode": "auto",
+    # Days to wait for a referral before the bot applies without one. 0: wait until you decide.
+    "referral_wait_days": 7,
 }
 
 
@@ -101,6 +105,8 @@ def init():
             have = {r["name"] for r in c.execute("PRAGMA table_info(%s)" % table)}
             if column not in have:
                 c.execute("ALTER TABLE %s ADD COLUMN %s %s" % (table, column, definition))
+                if column == "waiting_since":   # internships already waiting get the full wait from now
+                    c.execute("UPDATE internships SET waiting_since=? WHERE status=?", (now(), WAITING))
     try:
         os.chmod(DB_PATH, 0o600)   # your data: readable by your user account only
     except OSError:

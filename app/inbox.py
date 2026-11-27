@@ -154,6 +154,9 @@ def _route(listing: dict, url: str) -> Tuple[str, Optional[str], Optional[int], 
     existing = routing.find_existing(listing["company"], listing["title"], url, listing.get("location"))
     if existing:
         return "duplicate", "Already in your list", existing["id"], False
+    done = routing.already_applied(listing["company"], listing["title"], url)
+    if done:
+        return "duplicate", "You already applied%s" % routing.applied_note(done), done["id"], False
     row = routing.create(listing["company"], listing["title"], url, listing.get("location"),
                          source="newsletter")
     return "routed", None, row["id"], row["status"] == db.APPLYING
